@@ -15,6 +15,10 @@ import { CustomerModule } from './customer/customer.module';
 import { CartModule } from './cart/cart.module';
 import { OrderModule } from './order/order.module';
 import { PaymentModule } from './payment/payment.module';
+import { ReturnRefundModule } from './return-refund/return-refund.module';
+import { SettlementModule } from './settlement/settlement.module';
+import { NotificationModule } from './notification/notification.module';
+import { ReportingModule } from './reporting/reporting.module';
 
 @Module({
   imports: [
@@ -43,6 +47,10 @@ import { PaymentModule } from './payment/payment.module';
     CartModule,
     OrderModule,
     PaymentModule,
+    ReturnRefundModule,
+    SettlementModule,
+    NotificationModule,
+    ReportingModule,
   ],
   controllers: [AppController],
   providers: [

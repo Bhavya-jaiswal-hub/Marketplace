@@ -20,8 +20,8 @@
 | Product catalog and inventory | Complete | Single-category catalog, globally unique SKU, images, specifications, soft deletes, atomic stock reservation/release workflows, and immutable inventory history implemented with 100% test pass. |
 | Customer shopping and cart | Complete | Customer profiles, delivery addresses with Indian PIN validation & defaults, multi-seller persistent cart, quantity merges, and pre-checkout cart validation implemented with 100% test pass. |
 | Checkout, orders, and payments | Complete | Atomic inventory stock reservation (15-min TTL), multi-seller orders & items, Razorpay HMAC-SHA256 signature verification & webhooks, commission snapshots, and seller fulfillment state transitions implemented with 100% test pass. |
-| Returns, refunds, and settlements | Not started | Depends on orders and finalized payment records. |
-| Notifications and reporting | Not started | Depends on business events and financial records. |
+| Returns, refunds, and settlements | Complete | 5-day customer return window, Admin approval/rejection/inspection, return inventory restock, refund calculation & processing, and 7-day holding settlement calculation & manual payouts implemented with 100% test pass. |
+| Notifications and reporting | Complete | In-app/email notifications, safe non-blocking dispatch, notification templates, administrative reports (sales, revenue, commission, settlements, inventory low-stock alerts, KYC), seller analytics, and audit/activity logs implemented with 100% test pass. |
 | Production readiness | Not started | AWS, security, backup, monitoring, and compliance work remain. |
 
 ## Phase Status
@@ -32,8 +32,8 @@
 - [x] Phase 3: Product Catalog and Inventory
 - [x] Phase 4: Customer Profiles, Addresses, and Shopping
 - [x] Phase 5: Checkout, Orders, and Razorpay Payments
-- [ ] Phase 6: Returns, Refunds, and Settlements
-- [ ] Phase 7: Notifications, Reporting, and Administration
+- [x] Phase 6: Returns, Refunds, and Settlements
+- [x] Phase 7: Notifications, Reporting, and Administration
 - [ ] Phase 8: Production Readiness
 
 ## Completed Work

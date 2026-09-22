@@ -125,6 +125,7 @@ enum OrderItemStatus {
   SHIPPED
   DELIVERED
   CANCELLED
+  RETURN_REQUESTED
   RETURNED
   REFUNDED
 }
@@ -160,6 +161,66 @@ enum PaymentMethod {
   UPI
   WALLET
   OTHER
+}
+
+enum ReturnRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PICKUP_SCHEDULED
+  RECEIVED
+  COMPLETED
+  CANCELLED
+}
+
+enum RefundStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum RefundReason {
+  RETURN
+  ORDER_CANCELLATION
+  DEFECTIVE_PRODUCT
+  WRONG_ITEM
+  ADMIN_ADJUSTMENT
+  OTHER
+}
+
+enum SettlementStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum SettlementPayoutMethod {
+  BANK_TRANSFER
+  UPI
+  MANUAL
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  SMS
+  PUSH
+}
+
+enum NotificationDeliveryStatus {
+  QUEUED
+  PROCESSING
+  DELIVERED
+  FAILED
+}
+
+enum TemplateStatus {
+  ACTIVE
+  INACTIVE
 }
 
 enum StockChangeType {
@@ -207,6 +268,9 @@ model User {
   createdCategories          Category[]           @relation("CreatedCategories")
   createdCategoryCommissions CategoryCommission[] @relation("CreatedCategoryCommissions")
   auditLogs                  AuditLog[]
+  notifications              Notification[]
+  activityLogs               ActivityLog[]
+  requestedReports           ReportMetadata[]
   createdAt                  DateTime             @default(now())
   updatedAt                  DateTime             @updatedAt
 
@@ -278,6 +342,9 @@ model SellerProfile {
   sellerCategories    SellerCategory[]
   products            Product[]
   orderItems          OrderItem[]
+  returnRequests      ReturnRequest[]
+  settlements         Settlement[]
+  settlementItems     SettlementItem[]
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
 
@@ -517,6 +584,8 @@ model CustomerProfile {
   orders              Order[]
   paymentsPending     PaymentPending[]
   paymentTransactions PaymentTransaction[]
+  returnRequests      ReturnRequest[]
+  refunds             Refund[]
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
 
@@ -592,6 +661,8 @@ model Order {
   orderItems              OrderItem[]
   paymentsPending         PaymentPending[]
   paymentTransactions     PaymentTransaction[]
+  returnRequests          ReturnRequest[]
+  refunds                 Refund[]
   createdAt               DateTime             @default(now())
   updatedAt               DateTime             @updatedAt
 
@@ -629,6 +700,9 @@ model OrderItem {
   cancelledAt        DateTime?
   cancellationReason String?
   history            OrderItemHistory[]
+  returnRequests     ReturnRequest[]
+  refunds            Refund[]
+  settlementItem     SettlementItem?
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
@@ -689,6 +763,7 @@ model PaymentTransaction {
   status                PaymentTransactionStatus @default(SUCCEEDED)
   transactionType       PaymentTransactionType   @default(PAYMENT)
   rawWebhookPayload     Json?
+  refunds               Refund[]
   processedAt           DateTime                 @default(now())
   createdAt             DateTime                 @default(now())
   updatedAt             DateTime                 @updatedAt
@@ -697,6 +772,198 @@ model PaymentTransaction {
   @@index([customerId])
   @@index([providerTransactionId])
   @@index([status])
+}
+
+model ReturnRequest {
+  id                   String              @id @default(uuid()) @db.Uuid
+  orderId              String              @db.Uuid
+  order                Order               @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  orderItemId          String              @db.Uuid
+  orderItem            OrderItem           @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+  customerId           String              @db.Uuid
+  customer             CustomerProfile     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  sellerId             String              @db.Uuid
+  seller               SellerProfile       @relation(fields: [sellerId], references: [id], onDelete: Restrict)
+  returnQuantity       Int                 @default(1)
+  reason               String
+  customerComments     String?
+  status               ReturnRequestStatus @default(PENDING)
+  sellerComments       String?
+  adminRemarks         String?
+  rejectionReason      String?
+  pickupCarrier        String?
+  pickupTrackingNumber String?
+  pickupScheduledAt    DateTime?
+  receivedAt           DateTime?
+  completedAt          DateTime?
+  refund               Refund?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  @@index([orderId])
+  @@index([orderItemId])
+  @@index([customerId, status])
+  @@index([sellerId, status])
+  @@index([status])
+}
+
+model Refund {
+  id                   String              @id @default(uuid()) @db.Uuid
+  orderId              String              @db.Uuid
+  order                Order               @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  orderItemId          String?             @db.Uuid
+  orderItem            OrderItem?          @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+  returnRequestId      String?             @unique @db.Uuid
+  returnRequest        ReturnRequest?      @relation(fields: [returnRequestId], references: [id], onDelete: SetNull)
+  customerId           String              @db.Uuid
+  customer             CustomerProfile     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  paymentTransactionId String?             @db.Uuid
+  paymentTransaction   PaymentTransaction? @relation(fields: [paymentTransactionId], references: [id], onDelete: SetNull)
+  refundAmount         Decimal             @db.Decimal(10, 2)
+  currency             String              @default("INR")
+  refundReason         String
+  status               RefundStatus        @default(PENDING)
+  providerRefundId     String?             @unique
+  processedById        String?             @db.Uuid
+  failureReason        String?
+  rawResponse          Json?
+  processedAt          DateTime?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  @@index([orderId])
+  @@index([customerId, status])
+  @@index([status])
+  @@index([providerRefundId])
+}
+
+model Settlement {
+  id                  String                 @id @default(uuid()) @db.Uuid
+  settlementNumber    String                 @unique
+  sellerId            String                 @db.Uuid
+  seller              SellerProfile          @relation(fields: [sellerId], references: [id], onDelete: Restrict)
+  periodFrom          DateTime
+  periodTo            DateTime
+  grossAmount         Decimal                @db.Decimal(10, 2)
+  commissionAmount    Decimal                @db.Decimal(10, 2)
+  refundDeductions    Decimal                @default(0.00) @db.Decimal(10, 2)
+  adjustmentAmount    Decimal                @default(0.00) @db.Decimal(10, 2)
+  netSettlementAmount Decimal                @db.Decimal(10, 2)
+  currency            String                 @default("INR")
+  status              SettlementStatus       @default(PENDING)
+  payoutMethod        SettlementPayoutMethod @default(BANK_TRANSFER)
+  payoutReference     String?
+  payoutNotes         String?
+  processedById       String?                @db.Uuid
+  bankSnapshot        Json?
+  processedAt         DateTime?
+  items               SettlementItem[]
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  @@index([sellerId, status])
+  @@index([settlementNumber])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model SettlementItem {
+  id               String        @id @default(uuid()) @db.Uuid
+  settlementId     String        @db.Uuid
+  settlement       Settlement    @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+  orderItemId      String        @unique @db.Uuid
+  orderItem        OrderItem     @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+  sellerId         String        @db.Uuid
+  seller           SellerProfile @relation(fields: [sellerId], references: [id], onDelete: Restrict)
+  grossAmount      Decimal       @db.Decimal(10, 2)
+  commissionRate   Decimal       @db.Decimal(5, 2)
+  commissionAmount Decimal       @db.Decimal(10, 2)
+  refundAmount     Decimal       @default(0.00) @db.Decimal(10, 2)
+  adjustmentAmount Decimal       @default(0.00) @db.Decimal(10, 2)
+  netAmount        Decimal       @db.Decimal(10, 2)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([settlementId])
+  @@index([sellerId])
+  @@index([orderItemId])
+}
+
+model Notification {
+  id               String                     @id @default(uuid()) @db.Uuid
+  userId           String                     @db.Uuid
+  user             User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type             String
+  title            String
+  message          String
+  referenceType    String?
+  referenceId      String?
+  channel          NotificationChannel        @default(IN_APP)
+  status           NotificationDeliveryStatus @default(DELIVERED)
+  isRead           Boolean                    @default(false)
+  readAt           DateTime?
+  deliveryAttempts Int                        @default(1)
+  failureReason    String?
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+
+  @@index([userId, isRead])
+  @@index([userId, type])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model NotificationTemplate {
+  id              String              @id @default(uuid()) @db.Uuid
+  templateName    String              @unique
+  notificationType String
+  titleTemplate   String
+  messageTemplate String
+  channel         NotificationChannel @default(IN_APP)
+  status          TemplateStatus      @default(ACTIVE)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@index([notificationType, channel])
+  @@index([status])
+}
+
+model ActivityLog {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String?  @db.Uuid
+  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  activityType String
+  description  String
+  resourceType String?
+  resourceId   String?
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([activityType])
+  @@index([createdAt])
+}
+
+model ReportMetadata {
+  id             String    @id @default(uuid()) @db.Uuid
+  reportName     String
+  reportType     String
+  requestedById  String    @db.Uuid
+  requestedBy    User      @relation(fields: [requestedById], references: [id], onDelete: Cascade)
+  reportFormat   String    @default("CSV")
+  periodFrom     DateTime?
+  periodTo       DateTime?
+  status         String    @default("COMPLETED")
+  fileKey        String?
+  filterParams   Json?
+  summaryMetrics Json?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([requestedById, reportType])
+  @@index([reportType])
+  @@index([createdAt])
 }
 
 

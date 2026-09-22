@@ -447,4 +447,61 @@ export class InventoryService {
       };
     });
   }
+
+  async restockReturnedProduct(
+    productId: string,
+    quantity: number,
+    returnRequestId: string,
+    changedBy: string,
+  ): Promise<any> {
+    const inv = await this.prisma.inventory.findUnique({
+      where: { productId },
+    });
+    if (!inv) {
+      throw new NotFoundException(`Inventory record not found for product ${productId}`);
+    }
+
+    const previousQuantity = inv.availableQuantity;
+    const newQuantity = previousQuantity + quantity;
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const updatedInv = await tx.inventory.update({
+        where: { id: inv.id },
+        data: { availableQuantity: newQuantity },
+      });
+
+      await tx.inventoryHistory.create({
+        data: {
+          inventoryId: inv.id,
+          productId,
+          changeType: StockChangeType.RETURN_RESTOCK,
+          quantityChange: quantity,
+          previousQuantity,
+          newQuantity,
+          reason: `Restocked from accepted return request ${returnRequestId}`,
+          referenceId: returnRequestId,
+        },
+      });
+
+      return updatedInv;
+    });
+
+    await this.auditService.logAction({
+      userId: changedBy,
+      action: 'INVENTORY_RETURN_RESTOCK',
+      resourceType: 'Inventory',
+      resourceId: updated.id,
+      previousValue: { availableQuantity: previousQuantity },
+      newValue: {
+        availableQuantity: newQuantity,
+        returnRequestId,
+      },
+    });
+
+    return {
+      success: true,
+      data: updated,
+      message: 'Product stock restocked from return successfully',
+    };
+  }
 }
