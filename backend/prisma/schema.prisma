@@ -1,0 +1,116 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AccountType {
+  CUSTOMER
+  SELLER
+  ADMIN
+}
+
+enum AccountStatus {
+  PENDING
+  ACTIVE
+  REJECTED
+  SUSPENDED
+  BLOCKED
+  INACTIVE
+}
+
+enum SessionStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+}
+
+enum TokenStatus {
+  ACTIVE
+  USED
+  EXPIRED
+  REVOKED
+}
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique
+  description String?
+  users       User[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model User {
+  id                    String             @id @default(uuid()) @db.Uuid
+  fullName              String
+  email                 String             @unique
+  mobileNumber          String?            @unique
+  passwordHash          String
+  accountType           AccountType
+  accountStatus         AccountStatus      @default(PENDING)
+  emailVerified         Boolean            @default(false)
+  emailVerificationHash String?
+  emailVerificationExpiresAt DateTime?
+  lastLoginAt           DateTime?
+  roleId                String             @db.Uuid
+  role                  Role               @relation(fields: [roleId], references: [id])
+  sessions              Session[]
+  refreshTokens         RefreshToken[]
+  passwordResetTokens   PasswordResetToken[]
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  @@index([accountStatus])
+  @@index([roleId])
+}
+
+model Session {
+  id           String        @id @default(uuid()) @db.Uuid
+  userId       String        @db.Uuid
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status       SessionStatus @default(ACTIVE)
+  expiresAt    DateTime
+  lastActivityAt DateTime    @default(now())
+  revokedAt    DateTime?
+  createdFrom  String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  refreshTokens RefreshToken[]
+
+  @@index([userId, status])
+  @@index([expiresAt])
+}
+
+model RefreshToken {
+  id              String       @id @default(uuid()) @db.Uuid
+  userId          String       @db.Uuid
+  sessionId       String       @db.Uuid
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session         Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  tokenHash       String       @unique
+  status          TokenStatus  @default(ACTIVE)
+  expiresAt       DateTime
+  revokedAt       DateTime?
+  revocationReason String?
+  createdAt       DateTime     @default(now())
+
+  @@index([userId, sessionId, status])
+}
+
+model PasswordResetToken {
+  id          String      @id @default(uuid()) @db.Uuid
+  userId      String      @db.Uuid
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash   String      @unique
+  status      TokenStatus @default(ACTIVE)
+  expiresAt   DateTime
+  usedAt      DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime    @default(now())
+
+  @@index([userId, status])
+}
