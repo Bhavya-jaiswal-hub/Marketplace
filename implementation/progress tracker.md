@@ -17,8 +17,8 @@
 | Database schema and migrations | In progress | Phase 1 identity models are defined; migration requires a running PostgreSQL instance. |
 | Authentication and authorization | In progress | Core flows, active-session enforcement, session endpoints, and isolated unit tests are implemented; database migration, rate limiting, SES delivery, and executable test verification remain. |
 | Seller and category management | Complete | Seller profile onboarding, S3 KYC document uploads, Admin verification workflows, category hierarchy, and commission management implemented with 100% test coverage. |
-| Product catalog and inventory | Not started | Depends on seller/category permissions. |
-| Customer shopping and cart | Not started | Depends on catalog and inventory. |
+| Product catalog and inventory | Complete | Single-category catalog, globally unique SKU, images, specifications, soft deletes, atomic stock reservation/release workflows, and immutable inventory history implemented with 100% test pass. |
+| Customer shopping and cart | Complete | Customer profiles, delivery addresses with Indian PIN validation & defaults, multi-seller persistent cart, quantity merges, and pre-checkout cart validation implemented with 100% test pass. |
 | Checkout, orders, and payments | Not started | Depends on cart, inventory, and payment workflows. |
 | Returns, refunds, and settlements | Not started | Depends on orders and finalized payment records. |
 | Notifications and reporting | Not started | Depends on business events and financial records. |
@@ -29,8 +29,8 @@
 - [x] Phase 0: Technology and Project Bootstrap
 - [x] Phase 1: Identity and Access
 - [x] Phase 2: Seller Onboarding and Category Management
-- [ ] Phase 3: Product Catalog and Inventory
-- [ ] Phase 4: Customer Profiles, Addresses, and Shopping
+- [x] Phase 3: Product Catalog and Inventory
+- [x] Phase 4: Customer Profiles, Addresses, and Shopping
 - [ ] Phase 5: Checkout, Orders, and Razorpay Payments
 - [ ] Phase 6: Returns, Refunds, and Settlements
 - [ ] Phase 7: Notifications, Reporting, and Administration

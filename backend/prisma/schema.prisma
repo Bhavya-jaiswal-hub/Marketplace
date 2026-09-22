@@ -87,6 +87,38 @@ enum CommissionStatus {
   EXPIRED
 }
 
+enum ProductStatus {
+  ACTIVE
+  PAUSED
+  HIDDEN
+  DELETED
+}
+
+enum CustomerAddressType {
+  HOME
+  WORK
+  SHIPPING
+  OTHER
+}
+
+enum CartStatus {
+  ACTIVE
+  CONVERTED
+  ABANDONED
+}
+
+enum StockChangeType {
+  STOCK_ADDED
+  STOCK_REMOVED
+  RESERVATION_CREATED
+  RESERVATION_CONFIRMED
+  RESERVATION_RELEASED
+  ORDER_DEDUCTION
+  ORDER_CANCELLATION
+  RETURN_RESTOCK
+  MANUAL_ADJUSTMENT
+}
+
 model Role {
   id          String   @id @default(uuid()) @db.Uuid
   name        String   @unique
@@ -114,6 +146,7 @@ model User {
   refreshTokens              RefreshToken[]
   passwordResetTokens        PasswordResetToken[]
   sellerProfile              SellerProfile?
+  customerProfile            CustomerProfile?
   reviewedSellerVerifications SellerVerification[] @relation("ReviewedSellerVerifications")
   reviewedSellerCategories   SellerCategory[]     @relation("ReviewedSellerCategories")
   createdCategories          Category[]           @relation("CreatedCategories")
@@ -188,6 +221,7 @@ model SellerProfile {
   addresses           SellerAddress[]
   verifications       SellerVerification[]
   sellerCategories    SellerCategory[]
+  products            Product[]
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
 
@@ -266,6 +300,7 @@ model Category {
   createdBy          User                 @relation("CreatedCategories", fields: [createdById], references: [id])
   commissions        CategoryCommission[]
   sellerCategories   SellerCategory[]
+  products           Product[]
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
 
@@ -312,6 +347,88 @@ model CategoryCommission {
   @@index([effectiveFrom, effectiveTo])
 }
 
+model Product {
+  id             String                 @id @default(uuid()) @db.Uuid
+  sellerId       String                 @db.Uuid
+  seller         SellerProfile          @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  categoryId     String                 @db.Uuid
+  category       Category               @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  name           String
+  description    String?
+  sku            String                 @unique
+  price          Decimal                @db.Decimal(10, 2)
+  status         ProductStatus          @default(ACTIVE)
+  deletedAt      DateTime?
+  images         ProductImage[]
+  specifications ProductSpecification[]
+  inventory      Inventory?
+  cartItems      CartItem[]
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  @@index([sellerId, status])
+  @@index([categoryId, status])
+  @@index([status])
+  @@index([price])
+}
+
+model ProductImage {
+  id           String   @id @default(uuid()) @db.Uuid
+  productId    String   @db.Uuid
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  imageUrl     String
+  isPrimary    Boolean  @default(false)
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([productId, displayOrder])
+}
+
+model ProductSpecification {
+  id           String   @id @default(uuid()) @db.Uuid
+  productId    String   @db.Uuid
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name         String
+  value        String
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([productId, displayOrder])
+}
+
+model Inventory {
+  id                String             @id @default(uuid()) @db.Uuid
+  productId         String             @unique @db.Uuid
+  product           Product            @relation(fields: [productId], references: [id], onDelete: Cascade)
+  availableQuantity Int                @default(0)
+  reservedQuantity  Int                @default(0)
+  lowStockThreshold Int                @default(5)
+  history           InventoryHistory[]
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([productId])
+}
+
+model InventoryHistory {
+  id               String          @id @default(uuid()) @db.Uuid
+  inventoryId      String          @db.Uuid
+  inventory        Inventory       @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+  productId        String          @db.Uuid
+  changeType       StockChangeType
+  quantityChange   Int
+  previousQuantity Int
+  newQuantity      Int
+  reason           String?
+  referenceId      String?
+  createdAt        DateTime        @default(now())
+
+  @@index([inventoryId, createdAt])
+  @@index([productId, createdAt])
+}
+
 model AuditLog {
   id           String   @id @default(uuid()) @db.Uuid
   userId       String?  @db.Uuid
@@ -330,3 +447,68 @@ model AuditLog {
   @@index([action])
   @@index([createdAt])
 }
+
+model CustomerProfile {
+  id          String            @id @default(uuid()) @db.Uuid
+  userId      String            @unique @db.Uuid
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  firstName   String?
+  lastName    String?
+  phoneNumber String?
+  addresses   CustomerAddress[]
+  carts       Cart[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([userId])
+}
+
+model CustomerAddress {
+  id                String              @id @default(uuid()) @db.Uuid
+  customerId        String              @db.Uuid
+  customer          CustomerProfile     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  fullName          String
+  phoneNumber       String
+  addressLine1      String
+  addressLine2      String?
+  city              String
+  state             String
+  postalCode        String
+  country           String              @default("India")
+  addressType       CustomerAddressType @default(HOME)
+  isDefaultShipping Boolean             @default(false)
+  isDefaultBilling  Boolean             @default(false)
+  isActive          Boolean             @default(true)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@index([customerId, isActive])
+}
+
+model Cart {
+  id         String     @id @default(uuid()) @db.Uuid
+  customerId String     @db.Uuid
+  customer   CustomerProfile @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  status     CartStatus @default(ACTIVE)
+  items      CartItem[]
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  @@index([customerId, status])
+}
+
+model CartItem {
+  id        String   @id @default(uuid()) @db.Uuid
+  cartId    String   @db.Uuid
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productId String   @db.Uuid
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([cartId, productId])
+  @@index([cartId])
+  @@index([productId])
+}
+

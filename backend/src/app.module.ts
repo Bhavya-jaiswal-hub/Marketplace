@@ -9,6 +9,10 @@ import { AuditModule } from './audit/audit.module';
 import { StorageModule } from './storage/storage.module';
 import { SellerModule } from './seller/seller.module';
 import { CategoryModule } from './category/category.module';
+import { ProductModule } from './product/product.module';
+import { InventoryModule } from './inventory/inventory.module';
+import { CustomerModule } from './customer/customer.module';
+import { CartModule } from './cart/cart.module';
 
 @Module({
   imports: [
@@ -31,6 +35,10 @@ import { CategoryModule } from './category/category.module';
     StorageModule,
     SellerModule,
     CategoryModule,
+    ProductModule,
+    InventoryModule,
+    CustomerModule,
+    CartModule,
   ],
   controllers: [AppController],
   providers: [

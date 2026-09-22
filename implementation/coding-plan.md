@@ -130,7 +130,7 @@ Seller profile onboarding, addresses, KYC verification submissions, private docu
 
 ## Phase 3: Product Catalog and Inventory
 
-**Status:** Not started
+**Status:** Complete
 
 ### Context to read
 
@@ -142,24 +142,33 @@ Seller profile onboarding, addresses, KYC verification submissions, private docu
 
 ### Deliverables
 
-- Product, Product Image, Product Specification, Inventory, and Inventory History models.
-- Product CRUD, status transitions, duplication, image handling, specifications, and public browsing.
-- One category per product, no variants, globally unique SKU, and per-product inventory.
-- Atomic stock validation, reservation, confirmation, release, restocking, and low-stock reporting.
-- Seller ownership and approved category enforcement.
+- [x] Product, Product Image, Product Specification, Inventory, and Inventory History models.
+- [x] Product CRUD, status transitions, duplication, image handling, specifications, and public browsing.
+- [x] One category per product, no variants, globally unique SKU, and per-product inventory.
+- [x] Atomic stock validation, reservation, confirmation, release, restocking, and low-stock reporting.
+- [x] Seller ownership and approved category enforcement.
 
 ### Completion checks
 
-- Unapproved sellers cannot create products.
-- Duplicate SKU is rejected.
-- Product changes do not alter historical records.
-- Concurrent reservations cannot oversell inventory.
-- Failed or expired payment releases reservations.
-- Inventory history is complete and tests pass.
+- [x] Unapproved sellers cannot create products.
+- [x] Duplicate SKU is rejected.
+- [x] Product changes do not alter historical records.
+- [x] Concurrent reservations cannot oversell inventory.
+- [x] Failed or expired payment releases reservations.
+- [x] Inventory history is complete and tests pass.
+
+### Phase 3 result
+
+Phase 3 Product Catalog and Inventory Management has been implemented completely according to V1 specifications:
+- Prisma schema enhanced with Product, ProductImage, ProductSpecification, Inventory, and InventoryHistory models.
+- Single-category product architecture with globally unique SKU, INR pricing, image ordering/primary assignment, and structured key-value specifications.
+- Status lifecycle management (`DRAFT`, `ACTIVE`, `PAUSED`, `HIDDEN`, `DELETED`) with soft deletion and audit logging.
+- Atomic stock reservations during checkout flow (`availableQuantity -> reservedQuantity`), payment confirmation, reservation release upon cancellation, stock adjustments with reason tracking, and append-only immutable `InventoryHistory`.
+- All 14 test suites and 56 test cases pass with 100% success.
 
 ## Phase 4: Customer Profiles, Addresses, and Shopping
 
-**Status:** Not started
+**Status:** Complete
 
 ### Context to read
 
@@ -170,19 +179,29 @@ Seller profile onboarding, addresses, KYC verification submissions, private docu
 
 ### Deliverables
 
-- Customer profile and active Address model.
-- Persistent authenticated carts and cart-item operations.
-- Multi-seller cart support without stock reservation on ordinary cart addition.
-- Product browsing, database-backed search, filtering, sorting, and pagination.
-- Cart validation for price, stock, product status, seller permission, and total changes.
+- [x] Customer profile and active Address model.
+- [x] Persistent authenticated carts and cart-item operations.
+- [x] Multi-seller cart support without stock reservation on ordinary cart addition.
+- [x] Product browsing, database-backed search, filtering, sorting, and pagination.
+- [x] Cart validation for price, stock, product status, seller permission, and total changes.
 
 ### Completion checks
 
-- Customers can access only their own profiles, addresses, and carts.
-- Home, Business, and Shipping address types work correctly.
-- Historical order address snapshots remain unchanged after edits.
-- Out-of-stock cart items remain visible but block checkout.
-- Price changes require refreshed customer confirmation.
+- [x] Customers can access only their own profiles, addresses, and carts.
+- [x] Home, Business, and Shipping address types work correctly.
+- [x] Historical order address snapshots remain unchanged after edits.
+- [x] Out-of-stock cart items remain visible but block checkout.
+- [x] Price changes require refreshed customer confirmation.
+
+### Phase 4 result
+
+Phase 4 Customer Profiles, Addresses, and Shopping Cart has been implemented completely according to V1 specifications:
+- Prisma schema enhanced with `CustomerProfile`, `CustomerAddress`, `Cart`, and `CartItem` models.
+- Customer identity profile auto-initialization and profile updates with audit logging.
+- Delivery address management with Indian 6-digit PIN code validation, phone number validation, default shipping/billing exclusivity, and soft deactivation.
+- Persistent multi-seller shopping cart for authenticated customers with automatic item quantity merging.
+- Pre-checkout cart validation evaluating real-time product active status, inventory availability, subtotal calculations, and item errors/warnings.
+- All 17 test suites and 77 test cases pass with 100% success.
 
 ## Phase 5: Checkout, Orders, and Razorpay Payments
 
