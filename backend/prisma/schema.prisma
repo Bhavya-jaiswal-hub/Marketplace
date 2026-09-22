@@ -107,6 +107,61 @@ enum CartStatus {
   ABANDONED
 }
 
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  RETURNED
+  REFUNDED
+}
+
+enum OrderItemStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  RETURNED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  PARTIALLY_REFUNDED
+  REFUNDED
+  EXPIRED
+  CANCELLED
+}
+
+enum PaymentTransactionStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum PaymentTransactionType {
+  PAYMENT
+  REFUND
+  PARTIAL_REFUND
+}
+
+enum PaymentMethod {
+  CARD
+  NETBANKING
+  UPI
+  WALLET
+  OTHER
+}
+
 enum StockChangeType {
   STOCK_ADDED
   STOCK_REMOVED
@@ -222,6 +277,7 @@ model SellerProfile {
   verifications       SellerVerification[]
   sellerCategories    SellerCategory[]
   products            Product[]
+  orderItems          OrderItem[]
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
 
@@ -363,6 +419,7 @@ model Product {
   specifications ProductSpecification[]
   inventory      Inventory?
   cartItems      CartItem[]
+  orderItems     OrderItem[]
   createdAt      DateTime               @default(now())
   updatedAt      DateTime               @updatedAt
 
@@ -455,32 +512,36 @@ model CustomerProfile {
   firstName   String?
   lastName    String?
   phoneNumber String?
-  addresses   CustomerAddress[]
-  carts       Cart[]
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  addresses           CustomerAddress[]
+  carts               Cart[]
+  orders              Order[]
+  paymentsPending     PaymentPending[]
+  paymentTransactions PaymentTransaction[]
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
 
   @@index([userId])
 }
 
 model CustomerAddress {
-  id                String              @id @default(uuid()) @db.Uuid
-  customerId        String              @db.Uuid
-  customer          CustomerProfile     @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  fullName          String
-  phoneNumber       String
-  addressLine1      String
-  addressLine2      String?
-  city              String
-  state             String
-  postalCode        String
-  country           String              @default("India")
-  addressType       CustomerAddressType @default(HOME)
-  isDefaultShipping Boolean             @default(false)
-  isDefaultBilling  Boolean             @default(false)
-  isActive          Boolean             @default(true)
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  id                  String              @id @default(uuid()) @db.Uuid
+  customerId          String              @db.Uuid
+  customer            CustomerProfile     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  fullName            String
+  phoneNumber         String
+  addressLine1        String
+  addressLine2        String?
+  city                String
+  state               String
+  postalCode          String
+  country             String              @default("India")
+  addressType         CustomerAddressType @default(HOME)
+  isDefaultShipping   Boolean             @default(false)
+  isDefaultBilling    Boolean             @default(false)
+  isActive            Boolean             @default(true)
+  orders              Order[]
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
 
   @@index([customerId, isActive])
 }
@@ -511,4 +572,131 @@ model CartItem {
   @@index([cartId])
   @@index([productId])
 }
+
+model Order {
+  id                      String               @id @default(uuid()) @db.Uuid
+  customerId              String               @db.Uuid
+  customer                CustomerProfile      @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  orderNumber             String               @unique
+  shippingAddressId       String?              @db.Uuid
+  shippingAddress         CustomerAddress?     @relation(fields: [shippingAddressId], references: [id], onDelete: SetNull)
+  shippingAddressSnapshot Json
+  orderStatus             OrderStatus          @default(PENDING)
+  paymentStatus           PaymentStatus        @default(PENDING)
+  currency                String               @default("INR")
+  subtotal                Decimal              @db.Decimal(10, 2)
+  shippingAmount          Decimal              @default(0.00) @db.Decimal(10, 2)
+  discountAmount          Decimal              @default(0.00) @db.Decimal(10, 2)
+  taxAmount               Decimal              @default(0.00) @db.Decimal(10, 2)
+  totalAmount             Decimal              @db.Decimal(10, 2)
+  orderItems              OrderItem[]
+  paymentsPending         PaymentPending[]
+  paymentTransactions     PaymentTransaction[]
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
+
+  @@index([customerId, orderStatus])
+  @@index([orderStatus])
+  @@index([paymentStatus])
+  @@index([orderNumber])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id                 String             @id @default(uuid()) @db.Uuid
+  orderId            String             @db.Uuid
+  order              Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId          String             @db.Uuid
+  product            Product            @relation(fields: [productId], references: [id], onDelete: Restrict)
+  sellerId           String             @db.Uuid
+  seller             SellerProfile      @relation(fields: [sellerId], references: [id], onDelete: Restrict)
+  productName        String
+  sku                String
+  unitPrice          Decimal            @db.Decimal(10, 2)
+  quantity           Int
+  subtotal           Decimal            @db.Decimal(10, 2)
+  discountAmount     Decimal            @default(0.00) @db.Decimal(10, 2)
+  taxAmount          Decimal            @default(0.00) @db.Decimal(10, 2)
+  totalAmount        Decimal            @db.Decimal(10, 2)
+  commissionRate     Decimal            @db.Decimal(5, 2)
+  commissionAmount   Decimal            @db.Decimal(10, 2)
+  sellerEarnings     Decimal            @db.Decimal(10, 2)
+  status             OrderItemStatus    @default(PENDING)
+  trackingCarrier    String?
+  trackingNumber     String?
+  shippedAt          DateTime?
+  deliveredAt        DateTime?
+  cancelledAt        DateTime?
+  cancellationReason String?
+  history            OrderItemHistory[]
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  @@index([orderId])
+  @@index([sellerId, status])
+  @@index([productId])
+  @@index([status])
+}
+
+model OrderItemHistory {
+  id             String           @id @default(uuid()) @db.Uuid
+  orderItemId    String           @db.Uuid
+  orderItem      OrderItem        @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  previousStatus OrderItemStatus?
+  newStatus      OrderItemStatus
+  eventType      String
+  reason         String?
+  changedBy      String?
+  createdAt      DateTime         @default(now())
+
+  @@index([orderItemId, createdAt])
+}
+
+model PaymentPending {
+  id                     String          @id @default(uuid()) @db.Uuid
+  orderId                String          @db.Uuid
+  order                  Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  customerId             String          @db.Uuid
+  customer               CustomerProfile @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  paymentReference       String          @unique
+  providerOrderReference String?
+  amount                 Decimal         @db.Decimal(10, 2)
+  currency               String          @default("INR")
+  paymentMethod          PaymentMethod   @default(CARD)
+  status                 PaymentStatus   @default(PENDING)
+  attemptNumber          Int             @default(1)
+  idempotencyKey         String?         @unique
+  expiresAt              DateTime
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+
+  @@index([orderId])
+  @@index([customerId, status])
+  @@index([paymentReference])
+}
+
+model PaymentTransaction {
+  id                    String                   @id @default(uuid()) @db.Uuid
+  orderId               String                   @db.Uuid
+  order                 Order                    @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  customerId            String                   @db.Uuid
+  customer              CustomerProfile          @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  paymentReference      String                   @unique
+  providerTransactionId String                   @unique
+  amount                Decimal                  @db.Decimal(10, 2)
+  currency              String                   @default("INR")
+  paymentMethod         String                   @default("RAZORPAY")
+  status                PaymentTransactionStatus @default(SUCCEEDED)
+  transactionType       PaymentTransactionType   @default(PAYMENT)
+  rawWebhookPayload     Json?
+  processedAt           DateTime                 @default(now())
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+
+  @@index([orderId])
+  @@index([customerId])
+  @@index([providerTransactionId])
+  @@index([status])
+}
+
 
