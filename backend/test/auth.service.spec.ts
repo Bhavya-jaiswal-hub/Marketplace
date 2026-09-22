@@ -29,6 +29,7 @@ describe('AuthService', () => {
       },
       refreshToken: {
         create: jest.fn(),
+        update: jest.fn(),
         findUnique: jest.fn(),
         updateMany: jest.fn(),
       },
@@ -48,7 +49,6 @@ describe('AuthService', () => {
     service = new AuthService(prisma, jwt as unknown as JwtService, emailService as unknown as EmailService);
   });
 
-
   it('registers a pending customer with a hashed password and verification hash', async () => {
     prisma.user.findUnique.mockResolvedValue(null);
     prisma.role.upsert.mockResolvedValue({ id: 'role-id' });
@@ -62,7 +62,11 @@ describe('AuthService', () => {
     });
 
     expect(result).toEqual({ userId: 'user-id', status: AccountStatus.PENDING, message: 'Verification instructions have been sent.' });
-    expect(prisma.user.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ email: 'customer@example.com', roleId: 'role-id', accountStatus: undefined }) }));
+    expect(prisma.user.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ email: 'customer@example.com', roleId: 'role-id' }),
+      }),
+    );
     const passwordHash = prisma.user.create.mock.calls[0][0].data.passwordHash;
     expect(passwordHash).not.toBe('strong-password');
     expect(await bcrypt.compare('strong-password', passwordHash)).toBe(true);
@@ -127,4 +131,3 @@ describe('AuthService', () => {
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 });
-

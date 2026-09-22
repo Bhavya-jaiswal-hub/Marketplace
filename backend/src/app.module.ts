@@ -5,6 +5,10 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
 import { EmailModule } from './email/email.module';
+import { AuditModule } from './audit/audit.module';
+import { StorageModule } from './storage/storage.module';
+import { SellerModule } from './seller/seller.module';
+import { CategoryModule } from './category/category.module';
 
 @Module({
   imports: [
@@ -23,6 +27,10 @@ import { EmailModule } from './email/email.module';
     ]),
     EmailModule,
     AuthModule,
+    AuditModule,
+    StorageModule,
+    SellerModule,
+    CategoryModule,
   ],
   controllers: [AppController],
   providers: [
@@ -33,5 +41,3 @@ import { EmailModule } from './email/email.module';
   ],
 })
 export class AppModule {}
-
-
