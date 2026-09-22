@@ -16,9 +16,9 @@ import {
   RetryPayoutDto,
   SettlementQueryDto,
 } from './dto';
-import { AuthGuard } from '../auth/guards/auth.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
-import { Roles } from '../auth/decorators/roles.decorator';
+import { AuthGuard, AuthenticatedRequest } from '../auth/auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
 
 @Controller('api/v1')
 @UseGuards(AuthGuard, RolesGuard)

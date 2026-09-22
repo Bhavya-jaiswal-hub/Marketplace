@@ -19,6 +19,7 @@ import { ReturnRefundModule } from './return-refund/return-refund.module';
 import { SettlementModule } from './settlement/settlement.module';
 import { NotificationModule } from './notification/notification.module';
 import { ReportingModule } from './reporting/reporting.module';
+import { PrismaModule } from './prisma.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { ReportingModule } from './reporting/reporting.module';
         limit: 10, // 10 requests per 15 minutes
       },
     ]),
+    PrismaModule,
     EmailModule,
     AuthModule,
     AuditModule,

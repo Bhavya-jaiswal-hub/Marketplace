@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  marketplace-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: marketplace-api-prod
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/api/v1/health/liveness', (r) => { process.exit(r.statusCode === 200 ? 0 : 1); });\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - marketplace-network
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: marketplace-postgres-prod
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-marketplace_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-marketplace_secure_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-marketplace_prod}
+    volumes:
+      - marketplace-postgres-prod-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-marketplace_user} -d ${POSTGRES_DB:-marketplace_prod}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - marketplace-network
+
+networks:
+  marketplace-network:
+    driver: bridge
+
+volumes:
+  marketplace-postgres-prod-data:
+    name: marketplace-postgres-prod-data
