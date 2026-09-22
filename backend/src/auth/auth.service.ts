@@ -5,13 +5,18 @@ import * as bcrypt from 'bcryptjs';
 import { randomBytes, createHash } from 'node:crypto';
 import { LoginDto, RegisterDto, ResetPasswordDto } from './dto';
 import { PrismaService } from '../prisma.service';
+import { EmailService } from '../email/email.service';
 
 const hashToken = (token: string): string => createHash('sha256').update(token).digest('hex');
 const daysFromNow = (days: number): Date => new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 
 @Injectable()
 export class AuthService {
-  constructor(private readonly prisma: PrismaService, private readonly jwt: JwtService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly jwt: JwtService,
+    private readonly emailService: EmailService,
+  ) {}
 
   async register(dto: RegisterDto): Promise<{ userId: string; status: AccountStatus; message: string }> {
     const email = dto.email.toLowerCase().trim();
@@ -33,8 +38,12 @@ export class AuthService {
         emailVerificationExpiresAt: daysFromNow(1),
       },
     });
+
+    await this.emailService.sendVerificationEmail(user.email, verificationToken, user.fullName);
+
     return { userId: user.id, status: user.accountStatus, message: 'Verification instructions have been sent.' };
   }
+
 
   async verifyEmail(token: string): Promise<{ status: AccountStatus }> {
     const user = await this.prisma.user.findFirst({ where: { emailVerificationHash: hashToken(token) } });
@@ -110,8 +119,12 @@ export class AuthService {
     const resetToken = randomBytes(32).toString('hex');
     await this.prisma.passwordResetToken.updateMany({ where: { userId: user.id, status: TokenStatus.ACTIVE }, data: { status: TokenStatus.REVOKED, revokedAt: new Date() } });
     await this.prisma.passwordResetToken.create({ data: { userId: user.id, tokenHash: hashToken(resetToken), expiresAt: new Date(Date.now() + 30 * 60 * 1000) } });
+
+    await this.emailService.sendPasswordResetEmail(user.email, resetToken, user.fullName);
+
     return { message: 'If the account exists, reset instructions will be sent.' };
   }
+
 
   async resetPassword(dto: ResetPasswordDto): Promise<{ success: true }> {
     const token = await this.prisma.passwordResetToken.findUnique({ where: { tokenHash: hashToken(dto.token) } });
