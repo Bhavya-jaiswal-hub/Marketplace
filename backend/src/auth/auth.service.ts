@@ -21,7 +21,9 @@ export class AuthService {
   async register(dto: RegisterDto): Promise<{ userId: string; status: AccountStatus; message: string }> {
     const email = dto.email.toLowerCase().trim();
     const existing = await this.prisma.user.findUnique({ where: { email } });
-    if (existing) throw new ConflictException('Unable to register this account');
+    if (existing) {
+      throw new ConflictException('An account with this email already exists. Please sign in instead.');
+    }
 
     const roleName = dto.accountType === 'SELLER' ? 'SELLER' : 'CUSTOMER';
     const role = await this.prisma.role.upsert({
@@ -29,19 +31,34 @@ export class AuthService {
       update: {},
       create: { name: roleName, description: `${roleName} account` },
     });
+    
     const verificationToken = randomBytes(32).toString('hex');
+    const isCustomer = dto.accountType === 'CUSTOMER';
+    const shouldAutoActivate = isCustomer || process.env.NODE_ENV !== 'production';
+
     const user = await this.prisma.user.create({
       data: {
-        fullName: dto.fullName.trim(), email, passwordHash: await bcrypt.hash(dto.password, 12),
-        accountType: dto.accountType, roleId: role.id,
-        emailVerificationHash: hashToken(verificationToken),
-        emailVerificationExpiresAt: daysFromNow(1),
+        fullName: dto.fullName.trim(),
+        email,
+        passwordHash: await bcrypt.hash(dto.password, 12),
+        accountType: dto.accountType,
+        roleId: role.id,
+        accountStatus: shouldAutoActivate ? AccountStatus.ACTIVE : AccountStatus.PENDING,
+        emailVerified: shouldAutoActivate,
+        emailVerificationHash: shouldAutoActivate ? null : hashToken(verificationToken),
+        emailVerificationExpiresAt: shouldAutoActivate ? null : daysFromNow(1),
       },
     });
 
-    await this.emailService.sendVerificationEmail(user.email, verificationToken, user.fullName);
+    if (!shouldAutoActivate) {
+      await this.emailService.sendVerificationEmail(user.email, verificationToken, user.fullName);
+    }
 
-    return { userId: user.id, status: user.accountStatus, message: 'Verification instructions have been sent.' };
+    return { 
+      userId: user.id, 
+      status: user.accountStatus, 
+      message: shouldAutoActivate ? 'Account registered successfully.' : 'Verification instructions have been sent.' 
+    };
   }
 
 
