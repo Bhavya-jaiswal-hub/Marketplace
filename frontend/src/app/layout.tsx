@@ -27,7 +27,7 @@ export default function RootLayout({
         <AuthProvider>
           <CartProvider>
             <Navbar />
-            <main className="flex-grow">{children}</main>
+            <main className="flex-grow pt-[104px] md:pt-[136px]">{children}</main>
             <CartDrawer />
             <Footer />
           </CartProvider>

@@ -1,1736 +1,731 @@
-docs/
-
-SRS.md
-
-1. Document Information
-2. Revision History
-3. Introduction
-4. Project Overview
-5. Objectives
-6. Scope
-7. Stakeholders
-8. User Roles
-9. Functional Requirements
-10. Non-Functional Requirements
-11. Business Rules
-12. Business Workflows
-13. Use Cases
-14. Assumptions
-15. Constraints
-16. Future Scope
-17. Acceptance Criteria
-18. Glossary
-
-
 # Software Requirements Specification (SRS)
 
-**Project:** Multi-Vendor Marketplace
+**Project:** Multi-Vendor Clothing Marketplace
 
-**Version:** 1.0
+**Version:** 1.1
 
-**Status:** Draft
+**Status:** Approved Baseline
 
 **Author:** Bhavya Jaiswal
 
 **Document Owner:** Product & Engineering Team
 
-**Last Updated:** YYYY-MM-DD
+**Last Updated:** 2026-10-04
 
 ---
 
-# Revision History
+# Table of Contents
+
+1. [Document Information](#1-document-information)
+2. [Revision History](#2-revision-history)
+3. [Project Overview](#3-project-overview)
+4. [Product Objectives](#4-product-objectives)
+5. [Project Scope](#5-project-scope)
+6. [Stakeholders](#6-stakeholders)
+7. [User Roles](#7-user-roles)
+8. [Status Definitions](#8-status-definitions)
+9. [Functional Requirements](#9-functional-requirements)
+10. [Non-Functional Requirements](#10-non-functional-requirements)
+11. [Business Rules](#11-business-rules)
+12. [Use Cases](#12-use-cases)
+13. [Assumptions](#13-assumptions)
+14. [Constraints](#14-constraints)
+15. [Risks](#15-risks)
+16. [Success Metrics](#16-success-metrics)
+17. [Out of Scope (Version 1)](#17-out-of-scope-version-1)
+18. [Future Scope](#18-future-scope)
+19. [Acceptance Criteria](#19-acceptance-criteria)
+20. [Pre-Launch Checklist](#20-pre-launch-checklist)
+21. [Glossary](#21-glossary)
+22. [Open Questions](#22-open-questions)
+
+---
+
+# 1. Document Information
+
+This document defines the Software Requirements Specification (SRS) for the Multi-Vendor Clothing Marketplace, Version 1.1. It specifies all functional requirements, non-functional requirements, business rules, system workflows, operational constraints, and acceptance criteria.
+
+---
+
+# 2. Revision History
 
 | Version | Date | Author | Description |
-|---------|------|--------|-------------|
-| 1.0 | YYYY-MM-DD | Bhavya Jaiswal | Initial draft |
-
---- 
-
-
-
-Section 1 — Introduction
-
-
-## 1.3 Project Overview
-
-The Multi-Vendor Marketplace is an e-commerce platform where multiple independent sellers can register, complete a verification process, receive approval from the Super Admin, and sell products belonging to approved categories.
-
-Customers can browse products from multiple sellers, add them to a single cart, complete checkout using a unified payment process, and manage their orders through a single platform.
-
-The Super Admin manages seller verification, category approvals, commission rules, settlements, reports, and can also participate as a seller by listing and selling products. 
-
-
-
-Section 2 — Product Objectives
-
-# 2. Product Objectives
-
-The objectives of the Multi-Vendor Marketplace are:
-
-- Allow multiple independent sellers to sell products through a single platform.
-- Ensure seller authenticity through an administrative verification process.
-- Allow sellers to sell products only within approved categories.
-- Provide customers with a seamless shopping experience across multiple sellers.
-- Support a unified checkout process for products from different sellers.
-- Manage platform commissions based on product categories.
-- Hold customer payments securely before settling earnings with sellers.
-- Support returns, refunds, and settlement management.
-- Provide comprehensive dashboards and reports for administrators and sellers.
-- Build a scalable foundation that supports future marketplace features.
-
-
-Section 3 — Project Scope
-
-# 3. Project Scope
-
-The platform will provide functionality for three primary user roles:
-
-- Super Admin
-- Seller
-- Customer
-
-The system includes:
-
-- Seller registration and verification
-- Category approval workflow
-- Product management
-- Inventory management
-- Customer account management
-- Product browsing and search
-- Shopping cart
-- Checkout
-- Order management
-- Payment processing
-- Returns and refunds
-- Weekly seller settlements
-- Notification system
-- Reporting and analytics
-- Administrative dashboard
-
-The system is designed to support future enhancements including coupons, wishlists, promotional campaigns, product variants, seller subscription plans, digital products, bulk product uploads, customer-seller communication, and featured products.
-
-
-
-# 4. Stakeholders
-
-The following stakeholders are involved in the development, operation, and usage of the Multi-Vendor Marketplace.
-
-## 4.1 Super Admin (Marketplace Owner)
-
-The Super Admin is the owner of the marketplace and the primary stakeholder of the system. The Super Admin defines the business requirements, marketplace policies, and operational rules while also managing the day-to-day operations of the platform.
-
-Responsibilities:
-
-- Own and manage the marketplace.
-- Define business objectives.
-- Approve system requirements.
-- Define seller verification policies.
-- Define commission policies.
-- Verify sellers.
-- Approve or reject seller registrations.
-- Approve or reject seller category requests.
-- Manage commissions.
-- Manage settlements.
-- Manage reports and analytics.
-- Sell products through the platform.
-- Manage own products and categories.
+|---|---|---|---|
+| 1.0 | 2026-09-22 | Bhavya Jaiswal | Initial draft covering general multi-vendor marketplace architecture. |
+| 1.1 | 2026-10-04 | Product & Engineering Team | Aligned scope strictly to Clothing & Apparel (Men, Women, Kids); added product variants (Size x Color) with per-category size configurations; standardized Manual Weekly Settlement by Super Admin; added Admin-as-Seller rules with 0% commission and moderation bounds; defined 5-day multi-stage return dispute workflow and pre-shipment cancellation rules; established Admin-configurable shipping parameters (flat fee and free shipping threshold with cart nudge); specified partial shipment shipping fee retention; added optional GSTIN for Business sellers; introduced Pre-Launch Checklist. |
 
 ---
 
-## 4.2 Sellers
+# 3. Project Overview
 
-Sellers are Individuals or Businesses approved by the Super Admin to sell products on the marketplace.
+The Multi-Vendor Clothing Marketplace is an e-commerce platform dedicated exclusively to **Clothing & Apparel** across Men, Women, and Kids categories. Independent apparel merchants and brands register, submit identity and business documentation, undergo verification by the Super Admin, and list clothing items across authorized clothing categories.
 
-Responsibilities:
+Customers can browse clothing collections, select size and color variants, consolidate apparel from multiple sellers into a single cart, execute unified payment via the integrated payment gateway, track shipment fulfillment, cancel unfulfilled items prior to dispatch, and submit return requests within a 5-day post-delivery inspection window.
 
-- Maintain profile information.
-- Upload products.
-- Manage inventory.
-- Process received orders.
-- Request new selling categories.
-- View settlements and reports.
+The Super Admin governs the marketplace, manages seller approvals, configures category commission percentages and platform shipping parameters, resolves return disputes, and executes weekly manual bank payouts. The Super Admin may also sell clothing inventory directly on the platform with 0% commission, without category approval barriers, and with segregated financial reporting.
 
 ---
 
-## 4.3 Customers
+# 4. Product Objectives
 
-Customers browse products, purchase products, manage orders, request returns, and receive refunds.
-
-Responsibilities:
-
-- Maintain account information.
-- Purchase products.
-- Manage orders.
-- Request returns.
-- Submit product reviews (Future Feature).
-
----
-
-## 4.4 Development Team
-
-The engineering team responsible for designing, developing, testing, deploying, and maintaining the platform.
-
-Includes:
-
-- Solution Architect
-- Backend Developers
-- Frontend Developers
-- UI/UX Designers
-- QA Engineers
-- DevOps Engineers
-
-
-
-# 5. User Roles
-
-The platform supports three primary user roles.
-
-## 5.1 Super Admin
-
-The Super Admin has complete control over the marketplace.
-
-Capabilities include:
-
-- Login securely.
-- Verify sellers.
-- Reject sellers.
-- Suspend or block sellers.
-- Approve seller categories.
-- Reject seller categories.
-- Configure category commissions.
-- Manage settlements.
-- View reports.
-- View analytics.
-- Manage notifications.
-- Sell products like any other seller.
-- Manage own categories.
-- Manage own products.
-- View all orders.
-- Manage refunds.
+- Provide a dedicated, high-trust digital marketplace specialized exclusively for clothing and apparel.
+- Ensure seller authenticity through administrative verification of Aadhaar, PAN, address proofs, bank details, and optional GSTIN for Business sellers.
+- Enforce category authorization so sellers list products strictly within approved clothing departments.
+- Support clothing variants (Size x Color) in Version 1 with unique SKUs and independent stock tracking, utilizing category-specific size configurations.
+- Allow customers to purchase clothing variants from multiple independent sellers in a single checkout with unified payment capture.
+- Apply dynamic category-level platform commissions on seller orders while maintaining immutable financial snapshots per order item.
+- Support Admin-configurable shipping rules (flat shipping fee per seller and free shipping subtotal threshold) with cart guidance nudges.
+- Hold customer payments in the marketplace payment gateway account and execute weekly manual seller settlements for delivered, return-cleared orders.
+- Provide a structured 5-day return and inspection workflow with transparent shipping cost fault allocation.
+- Enable direct retail operations for the Super Admin at 0% commission with full auditability and reporting segregation.
+- Deliver comprehensive operational dashboards, reporting, and automated notifications across in-app and email channels.
 
 ---
 
-## 5.2 Seller
+# 5. Project Scope
 
-A Seller can be either an Individual or a Business.
+The platform encompasses three primary user roles:
+- **Super Admin**
+- **Seller**
+- **Customer**
 
-Capabilities include:
-
-- Register.
-- Upload verification documents.
-- Login after approval.
-- Update profile.
-- Request additional categories.
-- Add products.
-- Edit products.
-- Delete products.
-- Hide products.
-- Pause products.
-- Duplicate products.
-- Manage inventory.
-- View received orders.
-- Process shipments.
-- View settlements.
-- Download settlement reports.
-- Receive notifications.
-
-Restrictions:
-
-- Cannot sell without approval.
-- Cannot sell in unapproved categories.
-- Cannot edit products belonging to other sellers.
-- Cannot edit Admin products.
+### In-Scope for Version 1:
+- Clothing-only category hierarchy (Men's Clothing, Women's Clothing, Kids' Clothing, and subcategories).
+- Category-configurable size sets (e.g., S/M/L/XL for tops, waist sizes 28–36 for trousers, age brackets for kids).
+- Seller onboarding, verification (Individual and Business), optional GSTIN capture, and lifecycle status management.
+- Category permission requests, approvals, and revocations.
+- Product catalog management with size and color variants, per-variant SKUs, per-variant stock tracking, and product-level pricing (schema includes nullable price-override for future readiness).
+- Product visibility states: Active, Paused ("Currently unavailable"), Hidden (delisted from search/storefront), and Soft-Deleted (archived if referenced in historical orders).
+- Multi-vendor shopping cart with per-seller item grouping and "Add ₹X more for free shipping from this seller" progress message.
+- Unified checkout capturing single customer payment via payment gateway.
+- Admin-configurable shipping settings: flat fee per seller shipment and free shipping threshold per seller subtotal (defaults: ₹79 flat fee, free above ₹999).
+- Split-order allocation with independent order item fulfillment tracking (`Placed`, `Packed`, `Shipped`, `Delivered`, `Cancelled`).
+- Customer pre-shipment cancellation with proportional shipping fee handling (shipping fee retained for remaining items in partial cancellations; refunded fully only if all items in a seller's shipment are cancelled).
+- 5-day post-delivery return window with multi-stage inspection flow: Customer Request $\to$ Admin Eligibility Approval $\to$ Return Shipment $\to$ Seller Verification $\to$ Admin Dispute Resolution (if rejected by seller) $\to$ Gateway Refund.
+- Weekly manual seller settlement calculation: Net Payable = Delivered Sales (7+ days elapsed, no open return/refund) - Platform Commission - Return/Refund Adjustments - Seller-Fault Return Shipping Deductions.
+- Super Admin direct retail sales with 0% commission, no category approval barrier, exclusion from seller settlements, and segregated reporting.
+- Product moderation by Super Admin (takedown with mandatory reason to `Removed by Admin`, seller suspension, category revocation; no direct editing of seller product content).
+- Master notification dispatch across in-app and email channels.
+- Comprehensive sales, revenue, commission, settlement, inventory, and verification reporting.
 
 ---
 
-## 5.3 Customer
+# 6. Stakeholders
 
-Capabilities include:
+### 6.1 Super Admin (Marketplace Owner)
+The platform owner governing commercial policies, vendor verification, product moderation, dispute resolution, shipping configuration, financial settlements, and direct retail sales.
 
-- Register.
-- Login.
-- Browse products.
-- Search products.
-- Filter products.
-- Add products to cart.
-- Purchase products.
-- View order history.
-- Track orders.
-- Cancel products.
-- Cancel complete orders.
-- Request returns.
-- Receive refunds.
-- Receive notifications.
+### 6.2 Sellers
+Approved individual merchants or commercial apparel businesses listing clothing variants, managing inventory, fulfilling orders, and inspecting customer returns.
 
-Restrictions:
+### 6.3 Customers
+Registered retail consumers browsing clothing catalogs, selecting variants, purchasing across multiple sellers in a single checkout, tracking orders, and managing returns.
 
-- Cannot purchase without login.
-- Cannot manage seller information.
-
-
-# 6. Functional Requirements
-
-The platform shall provide the following core functional capabilities.
-
-## FR-1 User Authentication
-
-The system shall allow:
-
-- Customer Registration
-- Seller Registration
-- Admin Login
-- Secure Authentication
-- Password Reset
-- Profile Management
+### 6.4 Development & Operations Team
+Engineering and operations personnel responsible for building, testing, deploying, monitoring, and maintaining the platform.
 
 ---
 
-## FR-2 Seller Verification
+# 7. User Roles
 
+### 7.1 Super Admin
+- Authenticate securely with session management.
+- Review, approve, reject, suspend, or block sellers.
+- Manage clothing categories, subcategories, and category-specific size configurations.
+- Approve or reject seller category requests; revoke category permissions.
+- Configure category-level commission percentages.
+- Configure platform shipping parameters (flat fee per seller and free shipping threshold).
+- Moderate seller products: take down violating items with mandatory reason (status `Removed by Admin`), suspend sellers, or revoke category access. (Admin cannot edit seller prices, descriptions, or stock).
+- Sell clothing directly without category approval barriers, with 0% commission, no settlement generation, and segregated sales reporting.
+- Validate customer return eligibility, resolve seller-customer inspection disputes, and trigger gateway refunds.
+- Execute weekly manual settlement runs, inspect eligible items (delivered 7+ days, no open disputes), record external bank/UPI reference numbers, and lock settlements as immutable.
+- Access platform-wide reporting, financial summaries, and audit log streams.
+
+### 7.2 Seller
+- Register as Individual or Business with Aadhaar, PAN, address details, bank account info, and optional GSTIN.
+- Resubmit rejected verification documents upon Admin feedback.
+- Request category permissions within the clothing tree.
+- Create, edit, duplicate, pause, hide, and soft-delete clothing products and variants (size x color).
+- Maintain inventory counts and low-stock thresholds per variant SKU.
+- View assigned order items; update fulfillment status (`Packed`, `Shipped` with courier name and tracking ID, `Delivered`).
+- Cancel order items prior to shipping if stock is unavailable (triggers full customer refund).
+- Receive returned items, inspect physical condition, and mark `Verified` (accept) or `Rejected on Inspection` with mandatory reason.
+- Review weekly settlement statements, net payable calculations, and download historical payout reports.
+- Receive system notifications via email and in-app feeds.
+
+### 7.3 Customer
+- Browse clothing catalog, search products, and apply multi-attribute filters (category, size, color, price, in-stock).
+- View product detail pages with variant selector (size x color), live stock indicators, tax-inclusive pricing, and 5-day return policy disclosure.
+- Maintain a persistent multi-vendor cart with seller-specific free shipping progress indicators.
+- Complete unified checkout via payment gateway.
+- Track order items through granular fulfillment statuses and view courier tracking numbers.
+- Cancel order items prior to the seller marking them `Shipped` for an immediate refund.
+- Submit return requests within 5 days of delivery with mandatory reason and optional photos.
+- Ship approved return items back to the seller and track refund status.
+- Receive transactional email and in-app notifications.
+
+---
+
+# 8. Status Definitions
+
+The system enforces the following standardized status enumerations across all modules:
+
+### 8.1 Order Item Status
+- **Placed:** Order created and payment confirmed; item awaiting seller action.
+- **Packed:** Item packed and prepared for courier pickup by the seller.
+- **Shipped:** Item handed over to courier; courier name and AWB tracking number recorded.
+- **Delivered:** Seller manually marked item as delivered to customer (tracking ID recorded at `Shipped`); initiates 5-day return window and 7-day settlement countdown.
+- **Cancelled:** Item cancelled prior to shipping by customer or seller; refund processed.
+- **Not Received - Under Dispute:** Customer reported item not received within 7 days of seller marking `Delivered`; escalated to Super Admin dispute review and blocks settlement calculation until resolved.
+
+### 8.2 Parent Order Status (Derived from Items)
+- **Placed:** All items in the order are in `Placed` status.
+- **Partially Shipped:** At least one item is `Shipped`/`Delivered`, while others remain `Placed`/`Packed`.
+- **Partially Delivered:** At least one item is `Delivered`, while others are in transit or processing.
+- **Delivered:** All non-cancelled items in the order have been `Delivered`.
+- **Partially Cancelled:** One or more items are `Cancelled`, while other items continue fulfillment.
+- **Cancelled:** All items in the order have been `Cancelled`.
+- **Under Dispute:** One or more items are in `Not Received - Under Dispute` status awaiting Admin arbitration.
+
+### 8.3 Return Status
+- **Requested:** Customer submitted return request within the 5-day delivery window; awaiting Admin review.
+- **Approved:** Admin approved return eligibility; customer authorized to ship product to seller.
+- **Rejected:** Admin rejected return request (e.g., out of window or non-compliant reason); process closed.
+- **In Transit:** Customer provided return courier tracking details; package in transit to seller.
+- **Received:** Seller confirmed physical receipt of return package at facility.
+- **Verified:** Seller inspected item, confirmed acceptable condition, and accepted return.
+- **Rejected on Inspection:** Seller inspected item and rejected return due to damage, wear, or missing tags (dispute escalated to Admin).
+- **Refunded:** Admin approved refund following verification or dispute resolution; gateway refund triggered.
+
+### 8.4 Payment Status
+- **Pending:** Payment session initiated with gateway; awaiting confirmation.
+- **Paid:** Gateway confirmed successful fund capture into marketplace account.
+- **Failed:** Payment attempt failed, declined, or timed out.
+- **Partially Refunded:** One or more items/cancellations refunded; remaining balance held.
+- **Refunded:** Total transaction amount fully refunded to original customer payment method.
+
+### 8.5 Settlement Item Status
+- **Not Eligible:** Marked `Delivered` less than 7 days ago, currently in an open return/refund workflow, subject to an active "Not received" dispute, or payout not yet due.
+- **Eligible:** Order item marked `Delivered` 7+ days ago with no open return, refund, or active dispute; queued for settlement.
+- **Settled:** Payout calculated, external bank/UPI reference recorded by Super Admin, and financial record locked.
+
+### 8.6 Seller Account Status
+- **Pending Approval:** Newly registered seller awaiting Super Admin KYC document verification.
+- **Approved:** Verified seller authorized to request categories, list clothing products, and fulfill orders.
+- **Rejected:** Verification documents rejected by Super Admin with mandatory feedback (seller may resubmit).
+- **Suspended:** Reversible administrative suspension (listings temporarily hidden; seller dashboard restricted).
+- **Blocked:** Permanent or indefinite administrative block due to fraud, severe policy violations, or malicious activity (access barred).
+
+### 8.7 Product Visibility Status
+- **Active:** Listed, indexed in search, browsable on storefront, and available for purchase.
+- **Paused:** Merchant-paused listing displaying a "Currently unavailable" indicator; cannot be added to cart.
+- **Hidden:** Delisted from storefront, category browsing, and search index; existing order history intact.
+- **Soft-Deleted:** Marked as deleted in seller dashboard; archived in database if associated with historical orders, never hard deleted.
+- **Removed by Admin:** Administrative takedown of non-compliant or violating product by Super Admin with mandatory reason logged and seller notified.
+
+### 8.8 Category Permission Status
+- **Requested:** Seller submitted authorization request to list products in a clothing category; awaiting Admin review.
+- **Approved:** Super Admin approved category authorization; seller can list products in this category.
+- **Rejected:** Super Admin rejected category authorization request with feedback.
+- **Revoked:** Super Admin revoked previously granted category permission; existing listings moved to `Removed by Admin`.
+
+---
+
+# 9. Functional Requirements
+
+## FR-1 User Authentication & Account Management
 The system shall:
+- Support customer registration, login, profile management, and password reset.
+- Support seller registration with business type selection (Individual or Business).
+- Support secure Super Admin authentication with session management.
+- Protect all endpoints using role-based authorization guards (`SUPER_ADMIN`, `SELLER`, `CUSTOMER`).
 
-- Accept seller registration.
-- Allow Individual and Business registration.
-- Accept Aadhaar.
-- Accept PAN.
-- Accept Address Details.
-- Accept Seller Photograph.
-- Allow document resubmission.
-- Allow Admin approval.
-- Allow Admin rejection.
-- Store rejection reasons.
-
----
-
-## FR-3 Category Management
-
+## FR-2 Seller Onboarding & Identity Verification
 The system shall:
+- Accept seller verification data: Aadhaar number and document, PAN number and document, registered address proof, bank account details (account number, IFSC code), seller photograph, and an **optional GSTIN field** for Business sellers.
+- Provide Super Admin with an onboarding review queue to inspect documents and record approval or rejection with mandatory feedback.
+- Allow rejected sellers to view rejection feedback and resubmit updated documents.
+- Maintain seller account statuses: `Pending Approval`, `Approved`, `Rejected`, `Suspended`, `Blocked`.
 
-- Allow sellers to request new categories.
-- Allow Admin approval.
-- Allow Admin rejection.
-- Allow Admin to revoke category permission.
-- Allow sellers to sell only in approved categories.
-- Support category hierarchy.
-- Support subcategories.
-
----
+## FR-3 Clothing Category Management
+The system shall:
+- Maintain a clothing-only category hierarchy:
+  - **Men's Clothing:** Shirts, T-Shirts, Trousers, Jeans, Ethnic Wear, Jackets & Outerwear.
+  - **Women's Clothing:** Dresses, Tops & Tees, Sarees & Ethnic Wear, Kurtas, Skirts & Pants, Winterwear.
+  - **Kids' Clothing:** Boys' Clothing, Girls' Clothing, Baby & Toddler Wear.
+- Allow Super Admin to create, update, and manage categories and subcategories.
+- Support category-specific size configurations (e.g., alpha sizes S/M/L/XL for tops, numeric waist sizes 28–36 for bottoms, age brackets for kids) instead of a fixed global enum.
+- Allow sellers to request authorization for specific categories (status: `Requested`).
+- Enable Super Admin to approve, reject, or revoke seller category permissions (`Requested` $\to$ `Approved`, `Rejected`, or `Revoked`).
+- Restrict sellers to listing products exclusively within approved categories.
 
 ## FR-4 Commission Management
-
 The system shall:
+- Store a distinct platform commission percentage for every category and subcategory.
+- Allow Super Admin to update category commission percentages at any time.
+- Apply updated commission rates exclusively to future orders, locking historical commission rates on existing orders.
+- Automatically apply 0% commission on products listed and sold directly by the Super Admin.
 
-- Store commission percentage for every category.
-- Allow Admin to update commission.
-- Apply updated commission only to future orders.
-- Maintain historical commission data for previous orders.
-
----
-
-## FR-5 Product Management
-
+## FR-5 Product & Variant Management
 The system shall:
+- Allow sellers and Admin to create, edit, duplicate, pause, hide, and soft-delete clothing products.
+- Enforce that each product belongs to exactly one category/subcategory.
+- Support clothing **variants** defined by **Size** and **Color**.
+- Require a globally unique SKU for each product variant.
+- Enforce product-level pricing (selling price and MRP) across all variants in Version 1. The underlying database schema shall support an optional nullable price-override column per variant for future readiness.
+- Store an immutable price and financial snapshot on every order item at the time of purchase.
+- Support multiple product images per product and per variant.
+- Enforce product visibility rules:
+  - **Active:** Listed, searchable, and purchasable.
+  - **Paused:** Visible in search/storefront with "Currently unavailable" indicator; cannot be added to cart.
+  - **Hidden:** Delisted from search, catalog browsing, and public storefront.
+  - **Soft-Deleted:** Marked as deleted; permanently archived if associated with historical orders, never hard deleted.
+  - **Removed by Admin:** Takedown of non-compliant listing by Super Admin with mandatory reason logged.
 
-- Allow sellers to create products.
-- Allow sellers to edit products.
-- Allow sellers to delete products.
-- Allow sellers to duplicate products.
-- Allow sellers to hide products.
-- Allow sellers to pause products.
-- Support one SKU, price, and inventory record per product; product variants are excluded from Version 1.
-- Support product images.
-- Assign exactly one category to each product in Version 1.
-
----
-
-## FR-6 Inventory Management
-
+## FR-6 Inventory & Stock Management
 The system shall:
+- Maintain stock quantity and low-stock threshold independently for each variant SKU.
+- Mark an individual variant as **Out of Stock** when its stock quantity reaches zero.
+- Mark the parent product as **Out of Stock** when all of its variants have zero stock.
+- Decrement available variant stock atomically upon successful payment confirmation.
+- Restock variant inventory automatically upon confirmed order cancellation or accepted return.
 
-- Maintain stock quantity.
-- Automatically mark products as Out of Stock.
-- Allow sellers to update inventory.
-
----
-
-## FR-7 Customer Shopping
-
+## FR-7 Customer Browsing, Cart & Shipping Guidance
 The system shall:
+- Display active clothing products from all approved sellers with faceted search and filtering (category, size, color, price range, in-stock only, seller rating).
+- Require size and color variant selection before allowing a customer to add an item to the shopping cart.
+- Support a multi-vendor cart allowing items from multiple independent sellers in a single session.
+- Group cart items by seller and display subtotal calculations per seller.
+- Display a dynamic per-seller shipping indicator in the cart UI: *"Add ₹X more for free shipping from this seller"* based on Admin-configured platform thresholds.
+- Enforce customer login before proceeding to checkout.
 
-- Display products from multiple sellers.
-- Support search.
-- Support filters.
-- Support sorting.
-- Allow customers to maintain a shopping cart.
-- Allow products from multiple sellers within one cart.
-
----
-
-## FR-8 Checkout
-
+## FR-8 Checkout, Shipping Configuration & Order Creation
 The system shall:
+- Maintain Admin-configurable platform shipping settings (never hardcoded):
+  - **Flat Shipping Fee per Seller Shipment** (default placeholder: ₹79).
+  - **Free Shipping Subtotal Threshold per Seller** (default placeholder: ₹999).
+- Calculate tax-inclusive product totals and apply shipping fees per seller shipment during checkout.
+- Capture a single unified customer payment through the payment gateway into the marketplace account.
+- Employ idempotency tokens to eliminate duplicate orders or double charges.
+- Create one customer parent order upon payment confirmation and split it into seller-specific order items.
+- Store immutable financial snapshots on every order item (unit price, item subtotal, commission rate, commission amount, and shipping fee share).
 
-- Support a unified checkout.
-- Calculate totals.
-- Calculate commissions.
-- Create a single customer order.
-- Internally split orders seller-wise.
-
----
-
-## FR-9 Order Management
-
+## FR-9 Order Fulfillment, Manual Delivery Confirmation & Pre-Shipment Cancellation
 The system shall:
-
-- Create orders.
-- Track orders.
-- Support order status updates.
-- Support partial cancellation.
-- Support complete cancellation.
-
----
+- Present each seller with only their assigned order items in a dedicated fulfillment queue.
+- Allow sellers to update item fulfillment states: `Placed` $\to$ `Packed` $\to$ `Shipped` $\to$ `Delivered`.
+- Require sellers to record the **Courier Name** and **AWB Tracking Number** when marking an item `Shipped`.
+- Allow the seller to manually mark an order item as `Delivered` once physical delivery has occurred (Version 1 operates without direct courier API integration).
+- Establish that the seller's `Delivered` timestamp initiates both the **5-day customer return window** and the **7-day settlement holding countdown**.
+- Allow customers to report an order item as **"Not received"** within 7 calendar days of the seller marking it `Delivered`. This action sets the item status to `Not Received - Under Dispute`, escalates the case to Super Admin for arbitration, and immediately blocks weekly settlement calculation for that item until resolved.
+- Allow customers to cancel individual order items at any time **before** the item is marked `Shipped`.
+- Allow sellers to cancel an order item prior to shipping if stock is unavailable.
+- Enforce proportional shipping fee handling on pre-shipment cancellations:
+  - If a customer cancels **some** items from a seller shipment, the shipping fee is retained for the remaining items.
+  - If **all** items from a seller shipment are cancelled, the shipping fee for that seller is refunded in full.
+- Automatically execute an immediate gateway refund for pre-shipment cancellations.
 
 ## FR-10 Payment Management
-
 The system shall:
+- Receive and hold all customer checkout payments in the marketplace payment gateway account.
+- Record payment gateway transaction IDs, payment methods, and timestamps against every order.
+- Maintain immutable transaction logs for all captured payments, partial refunds, and full refunds.
+- Process refunds programmatically back to the original customer payment method via gateway APIs.
+- Exclude automated TCS calculation in Version 1.
 
-- Receive customer payments.
-- Hold payments until settlement.
-- Maintain payment records.
-- Support refund processing.
-
----
-
-## FR-11 Return & Refund
-
+## FR-11 Returns, Inspection & Refund Workflow
 The system shall:
+- Permit return requests within a strict **5-day window** following the seller marking the item `Delivered`.
+- Require customers to select an order item, provide a mandatory return reason, and optional condition photos.
+- Route return requests to Super Admin for eligibility validation (`Requested` $\to$ `Approved` / `Rejected`).
+- Require customer to enter return shipping courier details and tracking ID (`In Transit`).
+- Enable the seller to confirm package receipt (`Received`) and perform physical inspection:
+  - If approved, seller marks `Verified`.
+  - If rejected (due to damage, wear, or missing tags), seller marks `Rejected on Inspection` with a mandatory explanation.
+- Route disputed rejections to Super Admin for final resolution.
+- Enforce return shipping cost and refund rules:
+  - **Seller Fault** (defective product, wrong size/item sent, damaged, not as listed): Seller bears return shipping cost (deducted from seller settlement); customer receives full refund of item price. Original shipping fee is refunded only if all items in that seller's shipment were returned due to seller fault.
+  - **Customer Discretion** (size/fit mismatch, change of mind): Customer bears return shipping cost; customer receives refund of item price only (original shipping fee is retained).
+- Trigger the gateway refund upon final Admin approval of the verified return.
 
-- Accept return requests.
-- Require return reasons.
-- Allow Admin approval.
-- Process refunds after successful product return verification.
-
----
-
-## FR-12 Settlement
-
+## FR-12 Weekly Manual Settlement Management
 The system shall:
+- Run a weekly settlement calculation cycle initiated manually by the Super Admin.
+- Identify all settlement items meeting eligibility criteria: marked `Delivered` $\ge 7$ days ago with no open return request, active inspection dispute, customer "Not received" dispute (`Not Received - Under Dispute`), or pending refund.
+- Aggregate eligible items per seller and calculate:
+  $$\text{Net Payable} = \text{Gross Eligible Sales} - \text{Platform Commission} - \text{Return/Refund Adjustments} - \text{Seller-Fault Return Shipping Deductions}$$
+- Present Super Admin with a detailed breakdown and net payable amount per seller.
+- Allow Super Admin to execute payouts via external banking/UPI channels and record the mandatory external **Bank Transaction Reference Number**.
+- Mark settlement records as `Settled` and permanently lock them as immutable financial records.
+- Provide sellers with downloadable weekly settlement statements.
+- Exclude Super Admin retail sales from the seller settlement engine (0% commission, no settlement records generated).
 
-- Hold seller earnings.
-- Allow manual settlement.
-- Generate settlement history.
-- Generate settlement reports.
-- Support weekly settlements.
-
----
-
-## FR-13 Notifications
-
-The system shall notify users regarding:
-
-- Seller approval
-- Seller rejection
-- Category approval
-- Category rejection
-- Order creation
-- Settlement completion
-- Refund completion
-
----
+## FR-13 Master Notification System
+The system shall dispatch notifications across **In-App** and **Email** channels for the following 9 events:
+1. Seller registration approval or rejection.
+2. Category permission approval, rejection, or revocation.
+3. Order placed (sent to customer and each affected seller).
+4. Order cancelled (pre-shipment cancellation by customer or seller).
+5. Order shipped (with courier name and tracking number).
+6. Order delivered (notifying customer and starting 5-day return window).
+7. Return requested, approved, or rejected.
+8. Refund completed (with gateway refund reference).
+9. Settlement completed (with external transaction reference number).
 
 ## FR-14 Reports & Analytics
-
-The system shall generate:
-
-- Sales Reports
-- Revenue Reports
-- Commission Reports
-- Settlement Reports
-- Seller Reports
-- Product Reports
-- Low Stock Reports
-- Pending Verification Reports 
-
-
-# 9. Non-Functional Requirements
-
-The following non-functional requirements define the quality attributes that the Multi-Vendor Marketplace shall satisfy.
-
----
-
-## NFR-1 Performance
-
-The system shall provide a responsive user experience under normal operating conditions.
-
-Requirements:
-
-- User authentication should complete within an acceptable response time.
-- Product browsing and searching should return results quickly.
-- Product pages should load efficiently.
-- Order placement should complete without noticeable delays.
-- Dashboard pages should load within an acceptable response time.
-- The system shall support efficient pagination for large datasets.
-
----
-
-## NFR-2 Scalability
-
-The system shall be designed to support future business growth.
-
-Requirements:
-
-- Support thousands of sellers.
-- Support hundreds of thousands of products.
-- Support increasing customer traffic without major architectural redesign.
-- Allow additional marketplace features to be introduced without affecting existing functionality.
-
----
-
-## NFR-3 Security
-
-The system shall protect user accounts, business data, and sensitive information.
-
-Requirements:
-
-- Only authenticated users shall access protected resources.
-- Role-based access control shall be enforced throughout the system.
-- Sensitive seller documents shall be securely stored.
-- Customer payment information shall remain protected.
-- The system shall validate all user inputs before processing.
-- Administrative operations shall be restricted to authorized users only.
-
----
-
-## NFR-4 Reliability
-
-The system shall operate consistently without data corruption or unexpected failures.
-
-Requirements:
-
-- Orders shall not be duplicated.
-- Payment records shall remain consistent.
-- Commission calculations shall always be accurate.
-- Settlement records shall remain accurate and traceable.
-- Data integrity shall be maintained during failures.
-
----
-
-## NFR-5 Availability
-
-The platform shall be available to users except during planned maintenance activities.
-
-Requirements:
-
-- Marketplace services should remain accessible during normal business operations.
-- Planned maintenance should minimize service interruption.
-
----
-
-## NFR-6 Maintainability
-
-The system shall be easy to maintain and extend.
-
-Requirements:
-
-- The software shall follow a modular architecture.
-- Business logic shall be separated from presentation logic.
-- Documentation shall remain updated.
-- Future modules shall integrate without significant modification to existing modules.
-
----
-
-## NFR-7 Usability
-
-The platform shall provide a simple and intuitive user experience.
-
-Requirements:
-
-- User interfaces shall be consistent throughout the application.
-- Navigation shall remain simple for Customers, Sellers, and Super Admin.
-- Error messages shall clearly explain problems and possible actions.
-- Forms shall provide appropriate validation feedback.
-
----
-
-## NFR-8 Compatibility
-
-The platform shall function consistently across supported devices and browsers.
-
-Requirements:
-
-- Support modern desktop browsers.
-- Support modern mobile browsers.
-- Support responsive layouts for desktop, tablet, and mobile devices.
-
----
-
-## NFR-9 Data Integrity
-
-The platform shall preserve the correctness and consistency of business data.
-
-Requirements:
-
-- Product inventory shall always remain synchronized.
-- Orders shall maintain complete transaction history.
-- Settlement records shall remain immutable after completion.
-- Historical commission values shall be preserved for completed orders.
-
----
-
-## NFR-10 Auditability
-
-The platform shall maintain sufficient audit information for important business operations.
-
-Requirements:
-
-- Record seller verification activities.
-- Record category approval activities.
-- Record commission changes.
-- Record settlement operations.
-- Record refund approvals.
-- Record important administrative actions.
-
----
-
-## NFR-11 Backup & Recovery
-
-The platform shall support data recovery in the event of unexpected failures.
-
-Requirements:
-
-- Business-critical data shall be backed up regularly.
-- Recovery procedures shall minimize data loss.
-- Backup integrity shall be verified periodically.
-
----
-
-## NFR-12 Logging & Monitoring
-
-The platform shall maintain operational visibility.
-
-Requirements:
-
-- System errors shall be logged.
-- Authentication events shall be logged.
-- Administrative activities shall be logged.
-- Critical business operations shall be traceable for troubleshooting.
-
----
-
-## NFR-13 Extensibility
-
-The platform shall support future business enhancements.
-
-Requirements:
-
-- New modules shall be added without significant restructuring.
-- Future marketplace features shall integrate with existing business workflows.
-- The architecture shall support future third-party integrations.
-
----
-
-## NFR-14 Accessibility
-
-The platform should be usable by a wide range of users.
-
-Requirements:
-
-- Interfaces should use readable fonts and clear layouts.
-- Important actions should be easily identifiable.
-- Forms should provide clear labels and validation messages.
-
----
-
-## NFR-15 Compliance
-
-The platform shall comply with applicable business and data management practices.
-
-Requirements:
-
-- Seller verification records shall be maintained securely.
-- Customer and seller information shall be handled responsibly.
-- Financial records shall remain accurate for reporting and settlement purposes.
-
-# 10. Business Rules
-
-The following business rules define the operational policies of the Multi-Vendor Marketplace. These rules govern how the platform behaves and must be enforced throughout the system.
-
----
-
-## BR-1 Seller Registration
-
-- A seller may register as either an **Individual** or a **Business**.
-- Every seller must complete the registration process before requesting verification.
-- A seller account shall remain inactive until approved by the Super Admin.
-
----
-
-## BR-2 Seller Verification
-
-- Every seller must complete identity verification before selling products.
-- Aadhaar, PAN, photograph, and address details are mandatory.
-- The Super Admin is responsible for verifying seller documents.
-- The Super Admin may approve or reject the seller application.
-- Rejection must include a reason.
-- A rejected seller may resubmit the required documents.
-- Seller verification status shall always be one of:
-  - Pending
-  - Approved
-  - Rejected
-  - Suspended
-  - Blocked
-
----
-
-## BR-3 Seller Categories
-
-- Sellers may only sell products within approved categories.
-- Sellers may request one or more categories during registration.
-- Sellers may request additional categories after approval.
-- Every new category request requires separate approval.
-- Approval of one category shall not automatically approve other categories.
-- The Super Admin may revoke category permission at any time.
-
----
-
-## BR-4 Category Management
-
-- The Super Admin may create categories for marketplace management.
-- Categories may contain subcategories.
-- Multiple sellers may sell products within the same category.
-- Products belonging to different sellers shall be displayed together within the same category.
-- A seller cannot create marketplace categories.
-
----
-
-## BR-5 Commission Management 
-
-- Every category shall have its own commission percentage.
-- Commission is calculated as a percentage of the product selling price.
-- The Super Admin may modify commission percentages.
-- Updated commission values shall apply only to future orders.
-- Completed orders shall always retain the commission rate applicable at the time of purchase.
-
----
-
-## BR-6 Product Management
-
-- Sellers may create products only within approved categories.
-- Sellers may edit, pause, hide, duplicate, or delete only their own products.
-- Sellers shall not modify products belonging to other sellers.
-- The Super Admin shall not modify seller products.
-- Product approval is not required after category approval.
-- Products may contain multiple images. Version 1 products do not have variants, and each product has one globally unique SKU, price, and inventory record.
-- Each product belongs to exactly one category in Version 1.
-
----
-
-## BR-7 Inventory
-
-- Every product shall maintain stock quantity.
-- Products with zero stock shall automatically become Out of Stock.
-- Sellers are responsible for maintaining inventory.
-- Customers cannot purchase products that are out of stock.
-
----
-
-## BR-8 Customer Shopping
-
-- Customers may browse products without logging in.
-- Customers must log in before adding products to the cart or placing an order.
-- Customers may purchase products from multiple sellers within a single checkout.
-- The platform shall internally manage seller-specific order allocation.
-
----
-
-## BR-9 Orders
-
-- Every successful checkout creates one customer order.
-- The system shall internally split the order by seller.
-- Each seller shall view only their own order items.
-- Customers may cancel:
-  - An entire order
-  - Individual order items (subject to cancellation policy)
-
----
-
-## BR-10 Payments
-
-- Customers shall make a single payment during checkout.
-- The marketplace shall receive the payment.
-- Sellers shall not receive direct customer payments.
-- Payment records shall be maintained for every order.
-
----
-
-## BR-11 Returns & Refunds
-
-- Customers may request returns for eligible products.
-- Every return request must include a reason.
-- Return requests require Super Admin approval.
-- Refunds shall be processed only after successful return verification.
-- Approved refunds may be full or partial. Refund the actual discounted amount paid for the eligible item and applicable tax proportionally; do not refund the discount separately. Shipping is partially refundable according to policy, and seller commission is reversed or adjusted.
-- The normal return window is five days after delivery. Cancellation refunds and post-delivery return refunds follow separate rules.
-
----
-
-## BR-12 Seller Settlement
-
-- Seller earnings shall remain on hold after delivery.
-- Settlement eligibility begins seven days after delivery and requires no blocking return or refund.
-- The Super Admin shall manually initiate settlements.
-- Sellers shall have access to settlement history.
-- Sellers shall be able to download settlement reports.
-
----
-
-## BR-13 Notifications
-
-The platform shall notify users regarding important business events including:
-
-- Seller approval
-- Seller rejection
-- Category approval
-- Category rejection
-- Order placement
-- Order cancellation
-- Return approval
-- Refund completion
-- Settlement completion
-
----
-
-## BR-14 Marketplace Ownership
-
-- The Super Admin owns and operates the marketplace.
-- The Super Admin may also sell products using the same selling workflow as other sellers.
-- The Super Admin shall manage marketplace policies, commissions, settlements, reports, and seller verification.
-
----
-
-## BR-15 Data Ownership
-
-- Sellers own and manage only their own products.
-- Customers own their personal accounts and order history.
-- The marketplace owns operational records including settlements, commissions, verification history, and audit logs.
-
----
-
-## BR-16 Future Expansion
-
-The platform shall be designed to support future enhancements without disrupting existing business operations, including:
-
-- Coupons
-- Wishlist
-- Seller Subscription Plans
-- Bulk Product Upload
-- Promotional Campaigns
-- Featured Products
-- Digital Products
-- Customer-Seller Chat 
-
-
-# 11. Use Cases
-
-This section describes the primary interactions between the users and the Multi-Vendor Marketplace system.
-
----
-
-# 11.1 Super Admin Use Cases
-
-## UC-ADM-01: Login
-
-**Primary Actor:** Super Admin
-
-**Goal:**
-Access the administrative dashboard.
-
-**Preconditions:**
-- Super Admin account exists.
-
-**Main Flow:**
-1. Open login page.
-2. Enter credentials.
-3. Submit login request.
-4. System authenticates user.
-5. Dashboard is displayed.
-
-**Postconditions:**
-- Super Admin is logged into the system.
-
----
-
-## UC-ADM-02: Verify Seller
-
-**Primary Actor:** Super Admin
-
-**Goal:**
-Approve or reject a seller registration.
-
-**Preconditions:**
-- Seller has submitted verification documents.
-
-**Main Flow:**
-1. View pending verification requests.
-2. Open seller application.
-3. Review submitted documents.
-4. Approve or reject the application.
-5. If rejected, enter rejection reason.
-6. System updates seller status.
-7. Seller receives notification.
-
-**Postconditions:**
-- Seller status is updated.
-
----
-
-## UC-ADM-03: Approve Seller Category
-
-**Primary Actor:** Super Admin
-
-**Goal:**
-Approve or reject requested seller categories.
-
-**Main Flow:**
-1. View pending category requests.
-2. Review request.
-3. Approve or reject.
-4. System updates seller permissions.
-5. Seller receives notification.
-
-**Postconditions:**
-- Category permission updated.
-
----
-
-## UC-ADM-04: Configure Commission
-
-**Primary Actor:** Super Admin
-
-**Goal:**
-Manage category commission percentages.
-
-**Main Flow:**
-1. Open Commission Management.
-2. Select category.
-3. Update commission percentage.
-4. Save changes.
-
-**Postconditions:**
-- New commission applies to future orders.
-
----
-
-## UC-ADM-05: Manage Settlements
-
-**Primary Actor:** Super Admin
-
-**Goal:**
-Transfer pending seller earnings.
-
-**Main Flow:**
-1. View pending settlements.
-2. Review settlement amount.
-3. Initiate settlement.
-4. Record settlement.
-5. Notify seller.
-
-**Postconditions:**
-- Seller payment marked as settled.
-
----
-
-## UC-ADM-06: Manage Refund Requests
-
-**Primary Actor:** Super Admin
-
-**Goal:**
-Approve or reject customer refund requests.
-
-**Main Flow:**
-1. Open pending refunds.
-2. Review request.
-3. Approve or reject.
-4. If approved, process refund.
-5. Notify customer and seller.
-
-**Postconditions:**
-- Refund request completed.
-
----
-
-# 11.2 Seller Use Cases
-
-## UC-SEL-01: Register
-
-**Primary Actor:** Seller
-
-**Goal:**
-Create a seller account.
-
-**Main Flow:**
-1. Open seller registration page.
-2. Choose Individual or Business.
-3. Enter personal/business information.
-4. Upload required documents.
-5. Select selling categories.
-6. Submit application.
-
-**Postconditions:**
-- Seller account created with Pending status.
-
----
-
-## UC-SEL-02: Resubmit Documents
-
-**Primary Actor:** Seller
-
-**Goal:**
-Submit corrected verification documents.
-
-**Preconditions:**
-- Previous verification was rejected.
-
-**Main Flow:**
-1. View rejection reason.
-2. Replace required documents.
-3. Submit again.
-
-**Postconditions:**
-- Verification returns to Pending.
-
----
-
-## UC-SEL-03: Request New Category
-
-**Primary Actor:** Seller
-
-**Goal:**
-Request permission to sell in additional categories.
-
-**Main Flow:**
-1. Open Category Requests.
-2. Select new categories.
-3. Submit request.
-
-**Postconditions:**
-- Request sent to Super Admin.
-
----
-
-## UC-SEL-04: Manage Products
-
-**Primary Actor:** Seller
-
-**Goal:**
-Manage product catalog.
-
-**Main Flow:**
-1. Open Product Dashboard.
-2. Create/Edit/Delete/Pause/Hide/Duplicate product.
-3. Save changes.
-
-**Postconditions:**
-- Product catalog updated.
-
----
-
-## UC-SEL-05: Manage Inventory
-
-**Primary Actor:** Seller
-
-**Goal:**
-Maintain product stock.
-
-**Main Flow:**
-1. Open Inventory.
-2. Update stock quantity.
-3. Save changes.
-
-**Postconditions:**
-- Inventory updated.
-
----
-
-## UC-SEL-06: Process Orders
-
-**Primary Actor:** Seller
-
-**Goal:**
-Fulfill customer orders.
-
-**Main Flow:**
-1. View assigned orders.
-2. Pack products.
-3. Update shipping information.
-4. Mark order as dispatched.
-
-**Postconditions:**
-- Order progresses through delivery.
-
----
-
-## UC-SEL-07: View Settlements
-
-**Primary Actor:** Seller
-
-**Goal:**
-View payment history.
-
-**Main Flow:**
-1. Open Settlement Dashboard.
-2. View completed settlements.
-3. Download reports.
-
-**Postconditions:**
-- Settlement information displayed.
-
----
-
-# 11.3 Customer Use Cases
-
-## UC-CUS-01: Register
-
-**Primary Actor:** Customer
-
-**Goal:**
-Create a customer account.
-
-**Main Flow:**
-1. Register.
-2. Verify account (if applicable).
-3. Login.
-
-**Postconditions:**
-- Customer account created.
-
----
-
-## UC-CUS-02: Browse Products
-
-**Primary Actor:** Customer
-
-**Goal:**
-Discover products.
-
-**Main Flow:**
-1. Browse categories.
-2. Search products.
-3. Apply filters.
-4. View product details.
-
-**Postconditions:**
-- Product information displayed.
-
----
-
-## UC-CUS-03: Purchase Products
-
-**Primary Actor:** Customer
-
-**Goal:**
-Purchase products.
-
-**Main Flow:**
-1. Login.
-2. Add products to cart.
-3. Checkout.
-4. Complete payment.
-5. Order created.
-
-**Postconditions:**
-- Order successfully placed.
-
----
-
-## UC-CUS-04: Cancel Order
-
-**Primary Actor:** Customer
-
-**Goal:**
-Cancel eligible products.
-
-**Main Flow:**
-1. Open orders.
-2. Select product(s).
-3. Cancel.
-4. Confirm.
-
-**Postconditions:**
-- Order updated.
-
----
-
-## UC-CUS-05: Request Return
-
-**Primary Actor:** Customer
-
-**Goal:**
-Return purchased products.
-
-**Main Flow:**
-1. Open delivered orders.
-2. Select product.
-3. Choose return reason.
-4. Submit request.
-
-**Postconditions:**
-- Return request submitted.
-
----
-
-## UC-CUS-06: Track Orders
-
-**Primary Actor:** Customer
-
-**Goal:**
-Track delivery status.
-
-**Main Flow:**
-1. Open My Orders.
-2. Select order.
-3. View tracking information.
-
-**Postconditions:**
-- Current order status displayed. 
-
-
-# 12. Assumptions
-
-The following assumptions have been made during the preparation of this Software Requirements Specification (SRS). These assumptions are considered valid unless otherwise communicated by the client.
-
----
-
-## AS-1 Marketplace Ownership
-
-The marketplace is owned and operated by a single Super Admin who is responsible for managing the complete platform.
-
----
-
-## AS-2 Seller Types
-
-The platform supports both Individual and Business sellers.
-
----
-
-## AS-3 Seller Verification
-
-Every seller must successfully complete the verification process before selling any products on the marketplace.
-
----
-
-## AS-4 Category Approval
-
-A seller may sell products only within categories approved by the Super Admin.
-
-Approval of one category does not imply approval of any other category.
-
----
-
-## AS-5 Product Ownership
-
-Each seller owns and manages only their own products.
-
-The Super Admin manages only their own products and cannot directly modify products belonging to other sellers.
-
----
-
-## AS-6 Order Ownership
-
-Customers may purchase products from multiple sellers within a single checkout.
-
-Internally, the system shall maintain seller-specific order records for order processing and settlement.
-
----
-
-## AS-7 Payment Ownership
-
-All customer payments are received by the marketplace.
-
-The marketplace is responsible for calculating commissions, managing settlements, and processing refunds.
-
----
-
-## AS-8 Settlement
-
-Seller payments are not transferred immediately after a purchase.
-
-Seller earnings remain on hold until the settlement process is completed according to the marketplace policy.
-
----
-
-## AS-9 Returns & Refunds
-
-Refunds are processed only after the returned product has been successfully verified according to the marketplace return policy.
-
----
-
-## AS-10 Notifications
-
-The platform provides notifications for important marketplace events such as approvals, rejections, settlements, refunds, and order updates.
-
----
-
-## AS-11 Future Expansion
-
-The platform is expected to evolve over time by introducing additional marketplace features without requiring a complete system redesign.
-
-Examples include:
-
-- Coupons
-- Wishlist
-- Seller Subscription Plans
-- Product Variants
-- Bulk Product Upload
-- Customer-Seller Chat
-- Promotional Campaigns
-- Featured Products
-
----
-
-## AS-12 Internet Connectivity
-
-All users are assumed to have a stable internet connection while interacting with the platform.
-
----
-
-## AS-13 User Responsibility
-
-Users are responsible for maintaining accurate account information and keeping their login credentials secure.
-
----
-
-## AS-14 Legal Compliance
-
-Sellers are responsible for ensuring that the products they sell comply with applicable laws and regulations.
-
-The marketplace facilitates transactions but does not assume ownership of seller-listed products. 
-
-
-# 13. Constraints
-
-The following constraints define the limitations and boundaries within which the system shall be designed and implemented.
-
----
-
-## C-1 Budget Constraint
-
-The initial version of the marketplace shall prioritize the use of free or open-source technologies wherever feasible to minimize development and operational costs.
-
----
-
-## C-2 Marketplace Model
-
-The platform shall operate as a multi-vendor marketplace where all customer payments are processed through the marketplace before seller settlement.
-
-Direct customer-to-seller payments are outside the scope of Version 1.
-
----
-
-## C-3 Seller Approval
-
-Only approved sellers are permitted to sell products on the platform.
-
----
-
-## C-4 Category Restriction
-
-Sellers may create products only within categories approved for their accounts.
-
----
-
-## C-5 Administrative Authority
-
-Only the Super Admin may:
-
-- Verify sellers
-- Approve seller categories
-- Configure commissions
-- Process settlements
-- Approve refunds
-
----
-
-## C-6 Product Ownership
-
-Sellers cannot modify products belonging to other sellers.
-
-The Super Admin cannot directly edit seller-owned products.
-
----
-
-## C-7 Authentication
-
-Customers must be authenticated before performing protected actions such as placing orders, requesting returns, or managing their accounts.
-
----
-
-## C-8 Financial Records
-
-Completed financial transactions, settlements, commissions, and refunds must remain historically accurate and traceable.
-
-Historical financial records shall not be modified.
-
----
-
-## C-9 Business Rules
-
-All marketplace operations must comply with the business rules defined in this SRS.
-
-No module shall bypass these rules.
-
----
-
-## C-10 Future Compatibility
-
-The system shall be designed so that future features can be integrated without requiring significant redesign of existing modules. 
-
-
-
-# 14. Risks
-
-The following risks have been identified during the planning and design phase of the Multi-Vendor Marketplace. Appropriate mitigation strategies should be considered during implementation.
-
----
-
-## R-1 Fake Seller Verification
-
-**Description:**
-A seller may submit fake or forged verification documents.
-
-**Impact:**
-High
-
-**Mitigation:**
-The Super Admin shall manually verify all submitted documents before approving the seller.
-
----
-
-## R-2 Fraudulent Product Listings
-
-**Description:**
-A seller may upload prohibited, counterfeit, or misleading products.
-
-**Impact:**
-High
-
-**Mitigation:**
-The Super Admin shall have the authority to suspend sellers, revoke category permissions, or remove violating products according to marketplace policies.
-
----
-
-## R-3 Payment Failure
-
-**Description:**
-Customer payments may fail or remain incomplete due to external payment gateway issues.
-
-**Impact:**
-High
-
-**Mitigation:**
-Orders shall only be created after successful payment confirmation.
-
----
-
-## R-4 Settlement Errors
-
-**Description:**
-Incorrect settlement calculations may result in incorrect seller payouts.
-
-**Impact:**
-High
-
-**Mitigation:**
-Settlement calculations shall be based on immutable order, commission, and refund records.
-
----
-
-## R-5 Return & Refund Fraud
-
-**Description:**
-Customers may attempt to misuse the return and refund process.
-
-**Impact:**
-Medium
-
-**Mitigation:**
-Refunds shall only be processed after successful return verification and approval.
-
----
-
-## R-6 Data Loss
-
-**Description:**
-Unexpected failures may lead to loss of marketplace data.
-
-**Impact:**
-High
-
-**Mitigation:**
-Regular backups and recovery procedures shall be maintained.
-
----
-
-## R-7 Unauthorized Access
-
-**Description:**
-Unauthorized users may attempt to access protected resources.
-
-**Impact:**
-High
-
-**Mitigation:**
-Authentication, authorization, and audit logging shall be enforced throughout the platform.
-
----
-
-## R-8 Scope Creep
-
-**Description:**
-New requirements may be introduced during development without proper planning.
-
-**Impact:**
-Medium
-
-**Mitigation:**
-All new requirements shall be reviewed, documented, and approved before implementation.
-
-
-# 15. Success Metrics
-
-The success of Version 1 of the Multi-Vendor Marketplace shall be measured using the following criteria.
-
----
-
-## Business Success
-
-- Sellers can successfully register and complete verification.
-- Sellers can manage products independently.
-- Customers can browse and purchase products successfully.
-- Orders are processed without data inconsistencies.
-- Weekly settlements are completed successfully.
-- Refunds are processed correctly.
-- Commission calculations remain accurate.
-
----
-
-## System Success
-
-- Stable system performance during normal operation.
-- Secure authentication and authorization.
-- Reliable data integrity.
-- Accurate reporting.
-- Consistent notification delivery.
-- Successful audit logging.
-
----
-
-## User Success
-
-### Super Admin
-
-- Can efficiently manage marketplace operations.
-- Can verify sellers and categories.
-- Can monitor business performance.
-- Can manage settlements without manual calculation errors.
-
-### Seller
-
-- Can easily manage products and inventory.
-- Can track orders.
-- Can monitor settlements and reports.
-
-### Customer
-
-- Can easily discover products.
-- Can complete purchases successfully.
-- Can track orders.
-- Can request returns and receive refunds.
-
-
-# 16. Out of Scope (Version 1)
-
-The following features are intentionally excluded from Version 1 of the marketplace and may be considered for future releases.
-
-- Mobile Applications (Android & iOS)
-- Multi-language Support
-- AI Product Recommendations
-- Loyalty Program
-- Reward Points
-- Live Customer Support
-- Customer-Seller Live Chat
-- Affiliate Marketing
-- Multi-Currency Support
-- Multi-Warehouse Management
-- Automated Tax Calculation
-- Automated Shipping Provider Integration
-- Automated Settlement Processing
-- Seller Subscription Billing
-- Advanced Recommendation Engine 
-
-
-# 17. Future Scope
-
-The marketplace has been designed to support future enhancements without significant architectural changes.
-
-Potential future features include:
-
-- Coupons & Discount Campaigns
-- Wishlist
-- Product Reviews & Ratings
-- Seller Subscription Plans
-- Promotional Banners
-- Featured Products
-- Product Variants Enhancement
-- Digital Product Selling
-- Bulk Product Upload (CSV/Excel)
-- Customer-Seller Chat
-- Advanced Analytics
-- AI-Based Product Recommendations
-- Automated Shipping Integration
-- Automated Settlement Processing
-- Mobile Applications
-- Multi-language Support
-- Multi-Currency Support
-
-
-# 18. Acceptance Criteria
-
-The Multi-Vendor Marketplace shall be considered acceptable for Version 1.0 when all of the following criteria are successfully satisfied.
-
----
-
-## AC-1 Seller Management
-
-- Sellers can register as an Individual or Business.
-- Sellers can upload all required verification documents.
-- Sellers can resubmit rejected verification documents.
-- Super Admin can approve, reject, suspend, or block sellers.
-- Sellers can log in only after approval.
-
----
-
-## AC-2 Category Management
-
-- Sellers can request one or more selling categories.
-- Super Admin can approve or reject category requests.
-- Sellers can sell products only within approved categories.
-- Super Admin can revoke seller category permissions.
-
----
-
-## AC-3 Product Management
-
-- Sellers can create products.
-- Sellers can edit their own products.
-- Sellers can delete their own products.
-- Sellers can pause or hide products.
-- Sellers can duplicate products.
-- Products support images. Product variants are future scope and are excluded from Version 1.
-- Products automatically become Out of Stock when inventory reaches zero.
-
----
-
-## AC-4 Customer Experience
-
-- Customers can browse products without logging in.
-- Customers must log in before placing an order.
-- Customers can search and filter products.
-- Customers can purchase products from multiple sellers in a single checkout.
-- Customers can track their orders.
-- Customers can cancel eligible products.
-- Customers can request returns.
-
----
-
-## AC-5 Order Management
-
-- Orders are successfully created after payment.
-- Orders are internally split seller-wise.
-- Sellers can view only their assigned order items.
-- Order status updates are accurately reflected.
-
----
-
-## AC-6 Payment & Settlement
-
-- Customer payments are received by the marketplace.
-- Commission is calculated correctly.
-- Seller settlements are generated accurately.
-- Super Admin can complete manual settlements.
-- Settlement reports are available for sellers.
-
----
-
-## AC-7 Refund Management
-
-- Customers can submit return requests.
-- Super Admin can approve or reject return requests.
-- Refunds are processed only after successful return verification.
-- Refund history is maintained.
-
----
-
-## AC-8 Notifications
-
-Notifications are generated for:
-
-- Seller approval
-- Seller rejection
-- Category approval
-- Category rejection
-- Order placement
-- Order cancellation
-- Refund completion
-- Settlement completion
-
----
-
-## AC-9 Reporting
-
-The system generates reports for:
-
-- Sales
-- Revenue
-- Commission
-- Settlements
-- Sellers
-- Products
-- Low Stock
-- Pending Verifications
-
----
-
-## AC-10 System Quality
-
-The platform satisfies all approved Functional Requirements, Non-Functional Requirements, and Business Rules defined in this SRS.  
-
-
-
-# 19. Glossary
-
-The following glossary defines important business terms used throughout this Software Requirements Specification.
+The system shall generate exportable tabular and visual reports:
+- **Sales & Revenue Reports:** Gross merchandise value (GMV), platform net commission, and average order value.
+- **Admin Direct Sales Reports:** Segregated revenue and order volumes for products sold directly by the Admin.
+- **Seller Performance Reports:** Order fulfillment velocity, pre-shipment cancellation rates, return frequencies, and customer ratings.
+- **Settlement & Payout History:** Historical ledger of all completed weekly settlement runs with bank reference numbers.
+- **Variant Inventory & Low Stock Reports:** Stock levels, out-of-stock alerts, and fast-moving size/color combinations.
+- **Verification & Moderation Audit Reports:** History of seller document approvals, category revocations, and product takedowns.
+
+---
+
+# 10. Non-Functional Requirements
+
+### NFR-1 Performance
+- Catalog search, browsing, and category filtering responses shall render within $\le 1.5$ seconds under standard network conditions.
+- Checkout initialization and order creation shall execute within $\le 2$ seconds.
+- Background jobs (settlement eligibility compilation and notification dispatch) shall execute without degrading interactive user response times.
+
+### NFR-2 Scalability
+- Support horizontal scaling of API instances and database read replicas to accommodate up to 5,000 concurrent sellers and 500,000 product variant SKUs.
+- Modular architecture allowing future migration to microservices if transaction volume warrants.
+
+### NFR-3 Security & Privacy
+- Enforce strict Role-Based Access Control (RBAC) on all backend API routes.
+- Hash passwords using bcrypt (salt factor $\ge 12$).
+- Store seller verification documents in protected, access-controlled storage buckets.
+- Transmit all sensitive and financial data exclusively over TLS 1.3.
+
+### NFR-4 Reliability & Data Consistency
+- Enforce ACID transactional boundaries on multi-vendor split-order placement, inventory reservation, and settlement generation.
+- Employ idempotency keys on payment capture and refund processing to eliminate duplicate charges.
+- Ensure database integrity with strict foreign key constraints, atomic state transitions, and immutable financial snapshots.
+
+### NFR-5 Availability & Recovery
+- Maintain platform availability target of 99.5% uptime outside scheduled maintenance windows.
+- Execute automated daily database backups with point-in-time recovery capabilities.
+
+### NFR-6 Maintainability & Code Quality
+- Enforce clean separation of concerns: Controller $\to$ Service $\to$ Repository/ORM layer.
+- Maintain comprehensive OpenAPI/Scalar documentation for all endpoints.
+- Preserve $\ge 85\%$ unit and integration test coverage across financial, inventory, and order modules.
+
+### NFR-7 Usability & Responsiveness
+- Deliver responsive, accessible user interfaces across desktop, tablet, and mobile browsers adhering to the Vanguard Design System.
+- Provide explicit validation feedback, inline error messaging, and clear transaction confirmations on all forms.
+
+---
+
+# 11. Business Rules
+
+### BR-1 Seller Registration & Identity Verification
+- Every seller must register as an **Individual** or **Business** and submit mandatory verification documents (Aadhaar, PAN, address proof, photograph, bank account details, and optional GSTIN for Business sellers).
+- Seller accounts remain in `Pending Approval` status and cannot list products until approved by the Super Admin.
+- Super Admin rejection must include an explicit reason, allowing the seller to resubmit corrected documents.
+- Seller account statuses conform strictly to: `Pending Approval`, `Approved`, `Rejected`, `Suspended`, `Blocked`.
+- `Blocked` sellers are permanently or indefinitely barred from accessing the platform or registering new accounts due to fraud or severe policy violations.
+
+### BR-2 Category Authorization & Commission Hierarchy
+- Sellers are strictly restricted to listing products within approved clothing categories.
+- Category authorization requests remain in `Requested` status until approved or rejected by the Super Admin.
+- Category permission statuses conform strictly to: `Requested`, `Approved`, `Rejected`, `Revoked`.
+- Every clothing category and subcategory has an Admin-configured commission percentage.
+- Commission updates apply strictly to future orders; existing orders retain the historical commission rate captured at checkout.
+
+### BR-3 Clothing Catalog & Variant Integrity
+- Every product listed must belong exclusively to the **Clothing & Apparel** category tree (Men, Women, Kids).
+- Every product must define one or more **Variants** based on **Size** and **Color**.
+- Sizes are configured per category (e.g., S/M/L/XL for tops, waist sizes 28–36 for bottoms, age brackets for kids).
+- Every variant must possess a globally unique SKU and an independent stock quantity.
+- Selling price and MRP are defined at the product level; variant-level pricing is out of scope for Version 1.
+- Each product must belong to exactly one category/subcategory.
+
+### BR-4 Product Visibility & Archival
+Product visibility states conform strictly to:
+- **Active:** Available for public browsing, search, and purchase.
+- **Paused:** Displayed with "Currently unavailable" badge; cannot be added to cart.
+- **Hidden:** Delisted from storefront and search index; existing order history remains intact.
+- **Soft-Deleted:** Marked as deleted in seller dashboard; permanently archived in database if referenced by historical orders, never hard deleted.
+- **Removed by Admin:** Takedown of non-compliant product by Super Admin with mandatory reason logged and seller notified.
+
+### BR-5 Inventory & Out-of-Stock Dynamics
+- Individual variant with stock $= 0$ is marked `Out of Stock` and cannot be added to cart.
+- Product with all variants at stock $= 0$ is marked `Out of Stock` on catalog cards.
+- Stock is reserved atomically upon payment confirmation.
+
+### BR-6 Administrative Moderation & Product Ownership Bounds
+- Sellers have exclusive rights to create, edit, pause, hide, and delete their own clothing listings.
+- Super Admin shall **NOT** edit third-party seller product content (prices, titles, descriptions, or stock levels).
+- Super Admin **MAY** moderate listings by taking down non-compliant products with a mandatory reason (status `Removed by Admin`), suspending sellers, or revoking category permissions.
+- All moderation actions generate audit log entries and notify the seller.
+
+### BR-7 Admin-as-Seller Commercial Rules
+- Super Admin may list and sell clothing inventory directly on the marketplace.
+- Admin products require no category approval workflow.
+- Commission on Admin-owned products is **0%**.
+- Admin direct sales do not generate seller settlement records; revenues flow directly to marketplace accounts and appear in segregated sales reports.
+
+### BR-8 Multi-Vendor Shopping Cart & Split Orders
+- Customers must authenticate before adding items to cart or initiating checkout.
+- Customers may add clothing variants from multiple sellers into a single cart.
+- Checkout executes as a single financial transaction.
+- The platform internally splits the parent order into discrete seller order items, allowing independent fulfillment and tracking.
+
+### BR-9 Pre-Shipment Order Cancellation & Shipping Fee Rule
+- A customer may cancel any individual order item until the seller updates the status to `Shipped`.
+- Once an item is `Shipped`, cancellation is disabled; the customer must wait for delivery and initiate a return.
+- A seller may cancel an order item before shipping if inventory is unavailable.
+- **Partial vs. Full Cancellation Shipping Allocation:**
+  - If a customer cancels **some** items from a seller shipment, the shipping fee is retained for the remaining items in that shipment.
+  - If **all** items in that seller's shipment are cancelled, the shipping fee for that seller is refunded in full.
+
+### BR-10 Tax & Shipping Rules
+- All listed product prices are **tax-inclusive**. The platform does not calculate tax or deduct TCS in Version 1; sellers are responsible for their own tax compliance.
+- Platform shipping rules are Admin-configurable (flat fee per seller shipment, free above a seller subtotal threshold; default seed placeholders: ₹79 flat fee, free above ₹999).
+- Sellers must input the courier name and AWB tracking ID when dispatching shipments (`Shipped`).
+
+### BR-11 5-Day Returns & Inspection Governance
+- Customers may request a return within **5 calendar days** of the seller marking the item `Delivered` (the tracking ID having been recorded at `Shipped`).
+- Customers may report an item as **"Not received"** within **7 calendar days** of the seller marking it `Delivered`. This action sets the item status to `Not Received - Under Dispute`, creates an administrative dispute for Super Admin arbitration, and immediately freezes weekly settlement for that item until resolved.
+- Flow: Customer Request (reason mandatory) $\to$ Admin Eligibility Review $\to$ Customer Return Shipment $\to$ Seller Receipt & Inspection $\to$ Seller Verification / Dispute Escalation $\to$ Gateway Refund.
+- **Return Shipping Cost & Refund Allocation:**
+  - *Seller Fault* (defective, wrong item/size sent, damaged, not as listed): Seller bears return shipping (deducted from settlement); customer refunded item price. Original shipping fee is refunded only if all items in that seller shipment were returned due to seller fault.
+  - *Customer Discretion* (fit/size preference, change of mind): Customer bears return shipping; customer refunded item price only (original shipping fee is retained).
+- Refunds are calculated on the actual price paid.
+
+### BR-12 Weekly Manual Seller Settlement Governance
+- Seller earnings are held in the marketplace payment gateway account upon order delivery.
+- Settlement eligibility requires:
+  1. Item status is `Delivered` (manually marked by seller).
+  2. At least **7 full days** have elapsed since the `Delivered` timestamp.
+  3. No open return request, inspection dispute, customer "Not received" dispute (`Not Received - Under Dispute`), or pending refund exists for the item.
+- Super Admin runs the settlement cycle manually once per week.
+- Net Payable per seller:
+  $$\text{Net Payable} = \text{Gross Delivered Sales} - \text{Platform Commission} - \text{Return Adjustments} - \text{Seller-Fault Return Shipping}$$
+- Admin executes payment via external banking/UPI and enters the transaction reference number into the platform.
+- Once recorded, the settlement item status becomes `Settled` and the record is immutable.
+
+### BR-13 Standardized Notifications Master List
+The system shall deliver notifications via in-app feeds and email for the following events:
+1. Seller approval / rejection.
+2. Category approval / rejection / revocation.
+3. Order placed (customer and seller).
+4. Order cancelled (pre-shipment).
+5. Order shipped (with tracking details).
+6. Order delivered.
+7. Return requested / approved / rejected.
+8. Refund completed.
+9. Settlement completed.
+
+---
+
+# 12. Use Cases
+
+### 12.1 Super Admin Use Cases
+- **UC-ADM-01: Authenticate Super Admin:** Secure login with role validation.
+- **UC-ADM-02: Moderate Seller Onboarding:** Review submitted KYC proofs (PAN, Aadhaar, bank, optional GSTIN); approve, reject, suspend, or block with mandatory reason.
+- **UC-ADM-03: Manage Clothing Categories & Size Sets:** Add clothing subcategories; configure category-specific size configurations and commission percentages.
+- **UC-ADM-04: Authorize Seller Categories:** Review seller category requests (`Requested`); approve, reject, or revoke access.
+- **UC-ADM-05: Configure Shipping Parameters:** Set platform flat shipping fee and free shipping threshold per seller subtotal.
+- **UC-ADM-06: Moderate Product Listings:** Take down non-compliant listings with mandatory reason (`Removed by Admin`); suspend violating sellers.
+- **UC-ADM-07: Resolve Return Disputes & Not Received Claims:** Review contested seller inspection rejections and customer "Not received" disputes; arbitrate outcomes; trigger gateway refunds or release settlements.
+- **UC-ADM-08: Execute Weekly Manual Settlements:** Compile 7+ day delivered items with no open disputes; review deductions; record external bank transaction reference; lock settlement.
+- **UC-ADM-09: Manage Admin Direct Retail:** List, price, and fulfill Admin clothing inventory at 0% commission without self-approval.
+
+### 12.2 Seller Use Cases
+- **UC-SEL-01: Seller Onboarding:** Register as Individual/Business; upload KYC documents, bank details, and optional GSTIN; select initial clothing categories (`Requested`).
+- **UC-SEL-02: Manage Clothing Catalog:** Create clothing products; add size and color variants using category size sets; assign unique SKUs; set product-level price; manage image galleries.
+- **UC-SEL-03: Variant Inventory Control:** Update stock quantities and low-stock thresholds per variant SKU; monitor out-of-stock states.
+- **UC-SEL-04: Fulfill Order Items:** View assigned order items; update status to `Packed`, `Shipped` (recording courier name and tracking ID), and `Delivered` (manual delivery confirmation).
+- **UC-SEL-05: Pre-Shipment Seller Cancellation:** Cancel order item if stock is unavailable; system triggers customer refund.
+- **UC-SEL-06: Inspect Returned Products:** Acknowledge receipt of return shipment; inspect condition; mark `Verified` (accept) or `Rejected on Inspection` with explanation.
+- **UC-SEL-07: Access Weekly Settlement Reports:** View itemized settlement calculations, commission deductions, return adjustments, and payout transaction references.
+
+### 12.3 Customer Use Cases
+- **UC-CUS-01: Account Management:** Register, verify email, login, and maintain delivery addresses.
+- **UC-CUS-02: Browse Clothing Catalog:** Search clothing items; apply category-specific size, color, price, and category filters; inspect variant details.
+- **UC-CUS-03: Multi-Vendor Cart & Checkout:** Select size/color variant; view free-shipping progress nudges; complete unified payment via gateway.
+- **UC-CUS-04: Track Shipments:** Monitor order item progress (`Placed` $\to$ `Packed` $\to$ `Shipped` $\to$ `Delivered`); view courier tracking numbers.
+- **UC-CUS-05: Pre-Shipment Cancellation:** Cancel order item before it is marked `Shipped`; receive refund according to partial/full cancellation shipping rules.
+- **UC-CUS-06: Initiate 5-Day Return or Dispute:** Submit return request within 5 days of seller marking `Delivered`, or report "Not received" within 7 days of `Delivered` mark to initiate Admin dispute review.
+
+---
+
+# 13. Assumptions
+
+- **AS-1 Marketplace Specialization:** The marketplace specializes strictly in **Clothing & Apparel** for Men, Women, and Kids in Version 1. Footwear and accessories are deferred to V2.
+- **AS-2 Product Variants in V1:** Clothing products require size and color variants in Version 1, each with a unique SKU and stock count. Price is defined at the product level.
+- **AS-3 Dynamic Category Sizes:** Sizes are configurable per category (e.g., S/M/L/XL, numeric waist, kids age brackets) rather than a static global list.
+- **AS-4 Single Category Assignment:** Each product belongs to exactly one category/subcategory node.
+- **AS-5 Single Payment Capture:** Customers make one payment per checkout into the marketplace payment gateway account.
+- **AS-6 Manual Weekly Settlement:** Super Admin manually reviews and executes seller payouts on a weekly cycle via external banking/UPI and records transaction references in the system.
+- **AS-7 Tax Inclusivity & TCS:** All product prices are inclusive of taxes. Platform does not calculate tax or deduct TCS in Version 1; sellers manage their own tax filings.
+- **AS-8 5-Day Return Window:** Post-delivery returns are strictly limited to 5 calendar days after the seller marks the item `Delivered`.
+- **AS-9 7-Day Settlement Holding:** Seller funds are eligible for settlement only after 7 days have elapsed since the seller marked `Delivered` without open return or "Not received" disputes.
+- **AS-10 Internet & Browser Standard:** Users access the platform via modern web browsers with standard broadband/mobile data connectivity.
+
+---
+
+# 14. Constraints
+
+- **C-1 Product Category Constraint:** The platform is restricted strictly to clothing and apparel. Footwear, jewelry, and non-apparel accessories are excluded from Version 1.
+- **C-2 Pricing Constraint:** Pricing is configured at the product level in Version 1. Variant-level differential pricing is reserved for future scope (database schema contains nullable override column).
+- **C-3 Payment & Settlement Model:** Direct customer-to-seller payments are prohibited. All transactions flow through the marketplace gateway account and are settled manually by Super Admin.
+- **C-4 Content Ownership & Moderation Constraint:** Super Admin cannot edit seller product content (prices, descriptions, stock). Admin moderation is limited to taking down listings with mandatory reason (`Removed by Admin`), revoking category access, or suspending sellers.
+- **C-5 Immutable Financial Records:** Completed orders, commission records, processed refunds, and settled payouts cannot be altered or deleted. Every order item stores an immutable financial snapshot.
+- **C-6 Pre-Shipment Cancellation Cutoff:** Customers cannot cancel order items once the status is updated to `Shipped`.
+
+---
+
+# 15. Risks
+
+- **R-1 Seller Document Fraud:** Seller submits fraudulent identity documents.  
+  *Mitigation:* Super Admin performs manual verification before activating seller accounts.
+- **R-2 Inappropriate or Counterfeit Listings:** Seller lists non-compliant or counterfeit apparel.  
+  *Mitigation:* Super Admin possesses product takedown authority (`Removed by Admin`) with mandatory audit logging and seller suspension capabilities.
+- **R-3 Payment & Webhook Latency:** Gateway confirmation delays could cause checkout inconsistencies.  
+  *Mitigation:* Employ idempotent webhook handlers and verification to confirm payment capture before order creation.
+- **R-4 Return & Delivery Disputes:** Disagreements regarding returned item condition or claims of non-delivery ("Not received").  
+  *Mitigation:* Structured dispute escalation workflows where Super Admin reviews evidence and makes binding determinations before releasing settlements.
+- **R-5 Inventory Concurrency Conflicts:** Multiple customers attempting to buy the last variant unit simultaneously.  
+  *Mitigation:* Atomic database inventory decrement during payment confirmation transactions.
+
+---
+
+# 16. Success Metrics
+
+- **Business Success:** High seller onboarding throughput, accurate commission deductions, zero duplicate payouts during weekly settlement runs, and high return resolution satisfaction.
+- **System Success:** $\le 1.5$s catalog search latency, 99.5% uptime, 0% inventory overselling errors, and 100% notification delivery reliability.
+- **User Success:** Seamless multi-vendor variant selection, transparent order tracking, frictionless pre-shipment cancellations, and clear 5-day return self-service.
+
+---
+
+# 17. Out of Scope (Version 1)
+
+The following features are explicitly excluded from Version 1:
+- Footwear, jewelry, bags, and non-clothing fashion accessories (deferred to Version 2).
+- Variant-level differential pricing (e.g., charging more for 3XL).
+- Automated banking settlement via direct payout APIs.
+- Automated tax (GST) and TCS calculation/filing engine.
+- Automated courier API integration (label printing, auto-manifesting).
+- Mobile native applications (iOS and Android).
+- Customer-to-seller direct chat.
+- Coupons, promotional voucher codes, and flash sales engines.
+- Customer loyalty points and reward programs.
+- Digital products and downloadable goods.
+- Multi-currency and cross-border international shipping.
+
+---
+
+# 18. Future Scope
+
+The architecture supports future expansion for:
+- Variant-level differential pricing.
+- Expansion into footwear, accessories, and lifestyle categories in Version 2.
+- Automated bank payouts via payment gateway payout APIs.
+- Direct automated logistics integrations (Shiprocket, Delhivery, BlueDart APIs).
+- Automated GST / TCS tax reporting modules.
+- Customer product reviews, ratings, and fit feedback.
+- Seller subscription plans and premium storefront themes.
+- Native mobile applications (React Native / Flutter).
+- Coupons, gift cards, and promotional discount campaigns.
+
+---
+
+# 19. Acceptance Criteria
+
+### AC-1 Seller Management
+- Sellers register as Individual or Business and submit Aadhaar, PAN, address, bank details, and optional GSTIN.
+- Super Admin can approve or reject with reason, suspend, or block sellers.
+- Seller account statuses conform strictly to `Pending Approval`, `Approved`, `Rejected`, `Suspended`, `Blocked`.
+- Sellers can log in and list products only after Super Admin approval.
+
+### AC-2 Category & Commission Governance
+- Sellers can request and sell only within approved clothing categories (status: `Requested` $\to$ `Approved`, `Rejected`, `Revoked`).
+- Super Admin can configure category-specific size configurations and commission percentages.
+- Super Admin can approve, reject, or revoke category access.
+- Category commission rates apply automatically to seller orders; Admin direct sales incur 0% commission.
+
+### AC-3 Product & Variant Catalog
+- Sellers can create clothing products with multiple variants (Size x Color) using category size sets.
+- Each variant has a globally unique SKU and independent inventory count.
+- Variant at 0 stock displays as `Out of Stock`; product with all variants at 0 displays as `Out of Stock`.
+- Product pricing is configured at the product level.
+- Products support Active, Paused ("Currently unavailable"), Hidden, Soft-Deleted, and Removed by Admin states.
+
+### AC-4 Customer Experience & Multi-Vendor Checkout
+- Customers can search, filter (category-specific size, color, category, price), and select variants.
+- Multi-vendor cart groups items by seller and shows free shipping threshold nudges.
+- Checkout captures single payment via gateway and creates immutable financial snapshots per order item.
+- Admin-configurable platform shipping rules are applied accurately.
+
+### AC-5 Order Processing, Delivery Confirmation & Cancellation
+- Parent order splits into seller-specific order items.
+- Sellers update items from `Placed` $\to$ `Packed` $\to$ `Shipped` (recording courier name and tracking ID) $\to$ `Delivered` (manual delivery confirmation).
+- Seller's `Delivered` timestamp initiates 5-day return window and 7-day settlement countdown.
+- Customers can report "Not received" within 7 days of `Delivered` mark (`Not Received - Under Dispute`), creating an Admin dispute and freezing settlement.
+- Customers can cancel items before `Shipped` status. In partial cancellations, shipping fee is retained for remaining items; in full cancellations, shipping fee is fully refunded.
+
+### AC-6 5-Day Returns & Inspection
+- Return requests are accepted within 5 days of seller marking `Delivered`.
+- Super Admin validates eligibility $\to$ Customer ships item $\to$ Seller inspects (`Verified` or `Rejected on Inspection`) $\to$ Admin resolves disputes $\to$ Gateway refund processed.
+- Return shipping cost allocated based on fault (seller bears if defective/wrong; customer bears if fit/preference).
+
+### AC-7 Weekly Manual Settlement
+- System compiles items marked `Delivered` $\ge 7$ days ago with no open returns, refunds, or "Not received" disputes.
+- Super Admin reviews calculated Net Payable, executes external payout, records bank transaction reference, and locks settlement as immutable.
+- Admin direct sales are excluded from seller settlements.
+
+### AC-8 Notifications & Reporting
+- Standardized notifications delivered via in-app and email across all 9 master lifecycle events.
+- Reports generated for sales, revenue, commissions, settlements, inventory, and verifications.
+
+---
+
+# 20. Pre-Launch Checklist
+
+The following items are operational prerequisites to be completed by the client prior to production go-live (these do not block software engineering or platform development):
+
+| Item # | Prerequisite Task | Responsible Party | Target Deadline |
+|---|---|---|---|
+| **PLC-1** | **Payment Holding & Gateway Setup:** Client and payment gateway account manager confirm operational terms for holding customer payments prior to manual weekly seller payouts. | Client / Finance Team | Prior to Production Go-Live |
+| **PLC-2** | **GST & TCS Obligation Sign-Off:** Client's Chartered Accountant / Tax Advisor confirms tax compliance and marketplace reporting obligations for merchant onboarding. | Client / Tax Advisor | Prior to Production Go-Live |
+| **PLC-3** | **Initial Shipping Parameter Values:** Client confirms initial production values for flat shipping fee per seller and free shipping threshold (seeded defaults: ₹79 flat fee, ₹999 free threshold). | Client / Operations Team | Prior to Production Go-Live |
+
+---
+
+# 21. Glossary
 
 | Term | Definition |
-|------|------------|
-| Super Admin | The marketplace owner who manages the complete platform and can also sell products. |
-| Seller | An Individual or Business approved by the Super Admin to sell products on the marketplace. |
-| Customer | A registered user who purchases products from the marketplace. |
-| Category | A product classification that determines what type of products a seller is permitted to sell. |
-| Subcategory | A subdivision of a parent category used to organize products more effectively. |
-| Product | An item listed for sale by a seller or the Super Admin. |
-| Product Variant | A variation of a product based on attributes such as size, color, or other options. |
-| Commission | The percentage deducted by the marketplace from a seller's sale. |
-| Order | A customer's purchase transaction containing one or more products. |
-| Order Item | A single product within an order. |
-| Cart | A temporary collection of products selected for purchase. |
-| Checkout | The process through which a customer confirms an order and completes payment. |
-| Inventory | The available stock quantity of a product. |
-| Settlement | The transfer of a seller's earnings by the marketplace after deducting commissions and considering applicable business rules. |
-| Refund | The return of money to a customer after an approved return request. |
-| Return | The process through which a customer sends a purchased product back to the seller according to the marketplace policy. |
-| Verification | The process of reviewing seller documents before allowing them to sell products. |
-| Notification | A system-generated message informing users about important events. |
-| Dashboard | The main interface through which a user manages their activities within the platform. |
-| Marketplace | The complete Multi-Vendor E-commerce Platform described in this document. |
+|---|---|
+| **Super Admin** | The marketplace owner who governs platform policies, verifies sellers, resolves disputes, configures shipping rules, executes weekly settlements, and may sell direct clothing inventory. |
+| **Seller** | An approved Individual or Business merchant authorized to list clothing variants and fulfill customer orders. |
+| **Customer** | A registered consumer who browses, selects clothing variants, and purchases items via unified checkout. |
+| **Clothing Category** | A classification within the clothing hierarchy (Men, Women, Kids) determining seller listing authorization and applicable size configurations. |
+| **Product** | A clothing style listed under a single category with a product-level selling price and MRP. |
+| **Product Variant** | A specific Size and Color combination of a product possessing a globally unique SKU and distinct inventory count. |
+| **SKU (Stock Keeping Unit)** | A globally unique identifier assigned to each individual product variant. |
+| **Commission** | The category-based percentage retained by the marketplace from seller clothing sales. |
+| **Parent Order** | The overarching customer purchase transaction comprising one or more split seller order items. |
+| **Order Item** | A single variant purchased from a specific seller, tracked through independent fulfillment states with immutable financial snapshots. |
+| **Delivery Confirmation** | The timestamp recorded when the seller manually marks an order item as `Delivered` (without direct carrier API integration in V1), initiating the 5-day return window and the 7-day settlement holding countdown. |
+| **Not Received Dispute** | A formal claim submitted by a customer within 7 calendar days of a seller marking an item `Delivered`, placing the item into `Not Received - Under Dispute` status and freezing weekly seller settlement until Super Admin arbitrates. |
+| **Pre-Shipment Cancellation** | The cancellation of an order item before it is marked `Shipped`, triggering an immediate refund. |
+| **Return Window** | The 5-calendar-day period after the seller marks an item `Delivered` during which a customer may request a return. |
+| **Settlement Holding Period** | The 7-calendar-day period post-`Delivered` mark required before an item becomes eligible for weekly seller payout, provided no return or "Not received" dispute is active. |
+| **Weekly Settlement** | The manual administrative payout cycle where eligible earnings minus commissions and deductions are disbursed to sellers. |
+| **Admin Direct Retail** | Clothing products owned and sold directly by the Super Admin at 0% commission without settlement generation. |
+| **Product Moderation** | Administrative takedown of non-compliant listings with mandatory reason (`Removed by Admin`), without directly editing seller content. |
 
+---
+
+# 22. Open Questions
+
+1. **Category Size Configuration Sets:**
+   - What is the definitive initial size chart mapping for each clothing subcategory (e.g., standard Alpha XS–3XL for shirts/tops, numeric waist 28–42 for bottoms, age groups 0–3M, 3–6M, 1–2Y, 3–4Y, etc., for kids)?
+2. **Variant-Level Differential Pricing Roadmap:**
+   - Will variant-level differential pricing (supported at the schema level via optional override) be enabled in Phase 2 or alongside the V2 expansion?
