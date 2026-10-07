@@ -5,22 +5,22 @@
 The phase-by-phase coding execution tracker is maintained in [coding-plan.md](coding-plan.md).
 Current status is maintained in [progress tracker.md](progress%20tracker.md), and active blockers are maintained in [current-issues.md](current-issues.md).
 
-The approved client clarification document is the source of truth for Version 1 behavior:
-[Multi_Vendor_Marketplace_Client_Clarification_Completed.md](../docs/decisions/Multi_Vendor_Marketplace_Client_Clarification_Completed.md)
+The single source of truth for Version 1 behavior is:
+[docs/SRS.md](../docs/SRS.md) (v1.2)
 
 ## Progress Tracker
 
-- [x] Consolidate client requirements and business rules.
+- [x] Consolidate client requirements and business rules into `docs/SRS.md` (v1.2).
 - [x] Synchronize SRS, architecture, database, API, entity, and feature documents.
 - [x] Standardize backend API contracts with endpoint, security, idempotency, failure, and test sections.
-- [x] Complete project and database foundation.
+- [x] Complete project foundation.
 - [ ] Complete authentication and authorization.
-- [ ] Complete seller and category operations.
-- [ ] Complete catalog and inventory.
-- [ ] Complete customer shopping and cart.
-- [ ] Complete checkout, orders, and payments.
-- [ ] Complete returns, refunds, and settlements.
-- [ ] Complete notifications, reporting, and administration.
+- [ ] Complete seller and category operations (needs rework for Size Sets and GSTIN).
+- [ ] Complete catalog and inventory (needs rework for Size x Color variants).
+- [ ] Complete customer shopping and cart (needs rework for variantId).
+- [ ] Complete checkout, orders, and payments (needs rework for variant snapshots & webhook flow).
+- [ ] Complete returns, refunds, and settlements (needs rework for manual delivery & signed debit ledger).
+- [ ] Complete notifications, reporting, and administration (needs rework for 11 master events & Admin sales).
 - [ ] Complete production-readiness and compliance gates.
 
 ## 1. Delivery Strategy
@@ -36,20 +36,19 @@ Each phase should be completed with unit tests, API tests, authorization tests, 
 - [x] Confirm web-only Version 1, India, INR, single language, and excluded future features.
 - [x] Confirm separate customer and seller accounts and the initial Super Admin model.
 - [x] Confirm email verification, account statuses, soft deactivation/anonymization, and password-policy direction.
-- [x] Confirm manual seller verification, resubmission, Super Admin control, private documents, and seller address requirement.
-- [x] Confirm Admin-owned categories, one category per product, seller category permissions, and 0-100% commissions with two decimals.
-- [x] Confirm no product variants, globally unique SKUs, product statuses, and per-product inventory.
-- [x] Confirm checkout-time stock reservation, automatic release, manual shipping, and seller-grouped order items.
-- [x] Confirm authenticated persistent multi-seller carts and historical address snapshots.
-- [x] Confirm post-payment order creation, cancellation before shipment, and idempotent checkout.
+- [x] Confirm manual seller verification, resubmission, Super Admin control, private documents, seller address, and optional GSTIN for Business merchants.
+- [x] Confirm Admin-owned categories, one category per product, seller category permissions, 0-100% commissions with two decimals, and Admin-managed data-driven Size Sets.
+- [ ] Confirm product variants (Size x Color), data-driven Size Sets, globally unique variant SKUs, and per-variant inventory (needs rework - updated in SRS v1.2).
+- [ ] Confirm checkout-time stock reservation, manual seller delivery confirmation, 5-day return window, 7-day hold, and "Not received" dispute workflow (needs rework - updated in SRS v1.2).
+- [x] Confirm authenticated persistent multi-seller carts with `variantId` and historical address snapshots.
+- [x] Confirm post-payment order creation, pre-shipment cancellation, and idempotent checkout.
 - [x] Confirm Razorpay, no Cash on Delivery, verified webhook confirmation, and 15-minute payment expiry with three attempts.
-- [x] Confirm five-day returns, Super Admin approval, inspection before restocking, partial refunds, and commission adjustment.
-- [x] Confirm weekly manual settlements after delivery plus seven days, with no blocking return/refund.
-- [x] Confirm in-app/email notifications, reporting, audit retention, security targets, AWS, S3, SES, and background workers.
-- [ ] Synchronize all dependent documentation with the approved decisions.
-- [ ] Resolve the referenced Seller onboarding Option A wording if the original option text is needed for implementation.
+- [x] Confirm five-day returns from seller `Delivered` mark, Super Admin approval, inspection before restocking, partial refunds, and fault-based return shipping.
+- [ ] Confirm weekly manual settlements after delivery plus seven days with zero-payout floor, carried-forward debits, and signed adjustment ledger (needs rework - updated in SRS v1.2).
+- [x] Confirm in-app/email notifications (11 master events), reporting (segregated Admin retail sales), audit retention, security targets, AWS, S3, SES, and background workers.
+- [x] Synchronize all dependent documentation with SRS v1.2.
 
-Exit criterion: client-approved decisions are reflected consistently in the SRS, entities, database design, APIs, and feature specifications.
+Exit criterion: SRS v1.2 decisions are reflected consistently in the entities, database design, APIs, and feature specifications.
 
 ## 3. Phase 1: Platform Foundation
 
