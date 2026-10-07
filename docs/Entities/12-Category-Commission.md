@@ -200,21 +200,25 @@ A single customer order may contain products from multiple sellers.
 
 Therefore, commission must be calculated independently for each applicable seller/product category.
 
+### Super Admin Direct Retail Exemption (SRS FR-4, BR-4, BR-7)
+- Products listed and sold directly by the Super Admin automatically incur **0% commission**.
+- Admin sales are exempt from platform commission retention and do not generate seller settlement records.
+
 Example:
 
 Customer Order
 │
-├── Seller A
-│   └── Shoes
+├── Third-Party Seller A
+│   └── Men's Shirts
 │       Amount = ₹1,000
-│       Commission = 10%
+│       Commission = 10% (₹100 retained by marketplace)
 │
-└── Seller B
-    └── T-Shirts
-        Amount = ₹500
-        Commission = 15%
+└── Super Admin Direct Sales
+    └── Women's Sarees
+        Amount = ₹2,500
+        Commission = 0% (₹0 commission, 100% captured as direct platform revenue)
 
-The system must calculate the marketplace commission separately for each applicable seller/product category.
+The system calculates the marketplace commission separately for each split order item.
 
 The exact internal order-splitting structure will be finalized during the Order database and architecture design.
 

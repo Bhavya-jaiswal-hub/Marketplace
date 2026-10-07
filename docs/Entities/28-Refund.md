@@ -1,130 +1,81 @@
-Refund Entity
+# Refund Entity
 
- # Overview
+## Overview
 
-The Refund entity represents money returned to a customer for a previously successful payment.
+The Refund entity represents money returned to a customer from the marketplace payment gateway account for a pre-shipment cancellation, verified return, or arbitrated dispute.
 
-A Refund is generally created as a result of an approved return, cancellation, or another valid refund condition.
+All customer transactions in Version 1 are tax-inclusive; refunds are executed directly on the actual price paid (plus original shipping fee when full seller shipment is cancelled or returned due to seller fault).
 
-The Refund entity tracks the refund amount, reason, status, and payment-provider information required to complete and reconcile the refund.
+## Purpose
 
-# Purpose
+- Record and track programmatic refunds issued through the payment gateway.
+- Associate refunds with the specific Order, Order Item, Return Request, and original Payment Transaction.
+- Enforce idempotency to prevent duplicate refund disbursements.
+- Preserve immutable financial records for accounting, settlement adjustments, and audit reports.
 
-Store refund information.
-Associate refunds with the correct Order and Payment Transaction.
-Track refund amounts.
-Track refund status.
-Support full and partial refunds.
-Support payment-provider refund processing.
-Provide a financial record for refund reconciliation.
-
-# Owned By
+## Owned By
 
 Return & Refund Management
 
-# Used By
+## Used By
 
-Return & Refund Management
-Order Management
-Order Item Management
-Payment Management
-Payment Transaction Management
-Customer Management
-Seller Management
-Settlement Management
-Admin Dashboard
-Reporting
+- Payment Management (Gateway API Integration)
+- Order Management (Order Item Status Updates)
+- Settlement Management (Net Payable Deductions)
+- Customer Management (Refund Status Tracking)
+- Admin Dashboard (Refund Oversight)
+- Financial Reporting
 
-# Attributes
+## Attributes
 
-Attribute	Description
-Refund ID	Unique identifier for the refund
-Order ID	Order associated with the refund
-Order Item ID	Order Item associated with the refund, when applicable
-Customer ID	Customer receiving the refund
-Payment Transaction ID	Original payment transaction associated with the refund
-Return Request ID	Return request that resulted in the refund, when applicable
-Refund Amount	Amount being refunded
-Currency	Currency of the refund
-Refund Reason	Reason for the refund
-Refund Status	Current status of the refund
-Provider Refund ID	Payment provider's refund identifier
-Processed At	Timestamp when the refund was successfully processed
-Created At	Record creation timestamp
-Updated At	Last modification timestamp
-Refund Status
+| Attribute | Type | Description |
+|---|---|---|
+| Refund ID | UUID | Unique identifier for the refund |
+| Order ID | UUID | Parent order reference (Foreign Key to `Order`) |
+| Order Item ID | UUID | Specific order item refunded (Foreign Key to `OrderItem`) |
+| Customer ID | UUID | Customer receiving the refund (Foreign Key to `User`) |
+| Payment Transaction ID | UUID | Original captured payment transaction reference |
+| Return Request ID | UUID (Nullable) | Return request initiating the refund (Foreign Key to `ReturnRequest`, if applicable) |
+| Amount | Numeric | Amount refunded to customer (tax-inclusive) |
+| Currency | String | Currency of refund (e.g., `INR`) |
+| Reason | String | Refund reason (Pre-Shipment Cancellation, Verified Return, Dispute Resolution) |
+| Gateway Refund ID | String | External payment gateway refund reference ID |
+| Idempotency Key | String | Unique idempotency token to prevent duplicate gateway refund calls |
+| Status | Enum | Refund status: `Pending`, `Paid` (Processed), `Failed` |
+| Processed At | Timestamp (Nullable) | Timestamp when payment gateway confirmed refund |
+| Created At | Timestamp | Record creation timestamp |
+| Updated At | Timestamp | Last modification timestamp |
 
-Possible statuses include:
+## Business & Refund Calculation Rules (SRS FR-8, FR-9, FR-10, FR-11, BR-10, BR-11)
 
-Pending
-Processing
-Succeeded
-Failed
-Cancelled
+1. **Tax-Inclusive Refund Amounts:** All refunds represent the exact price paid at purchase. No separate tax calculations or TCS deductions are performed in Version 1.
+2. **Cancellation Refunds:**
+   - **Partial Cancellation:** If $\ge 1$ item in the seller shipment remains active, refund = sum of cancelled items' unit prices (shipping fee retained).
+   - **Full Cancellation:** If all items in a seller shipment are cancelled, refund = sum of items' unit prices + full seller shipment flat shipping fee.
+3. **Return Refunds:**
+   - **Seller Fault:** Customer receives full refund of item price. Original shipping fee is refunded if all items in that seller's shipment were returned due to seller fault.
+   - **Customer Discretion:** Customer receives refund of item price only (original shipping fee retained).
+4. **Dispute Resolution Refunds:** For customer "Not received" claims resolved in customer's favor by Super Admin, a full refund of item price (+ shipping fee if entire seller shipment was unreceived) is triggered.
 
-A refund should be considered completed only after the required payment-provider confirmation has been received.
+## Validation Rules
 
-Refund Types
+1. Every Refund must reference a valid `Order`, `Payment Transaction`, and `Customer`.
+2. `Amount` must be $> 0$ and cannot exceed the captured amount on the associated Order Item.
+3. Cumulative refunds for an order item cannot exceed its original captured total.
+4. `Gateway Refund ID` must be unique once confirmed by the payment provider.
 
-Possible refund scenarios include:
-
-Full Refund
-Partial Refund
-
-A partial refund may be used when only part of an Order or Order Item is eligible for refund.
-
-# Validation Rules
-
-Every Refund must belong to a valid Order.
-Every Refund must reference a valid Payment Transaction.
-Every Refund must belong to the Customer associated with the Order.
-Refund Amount must be greater than zero.
-Refund Amount must not exceed the refundable amount of the original payment.
-Currency must match the applicable payment currency.
-Refund Status must contain a valid status.
-Refund Reason is mandatory.
-Provider Refund ID must be unique when provided.
-A Refund must not be marked as successful without valid payment-provider confirmation.
-A failed or cancelled refund must not be treated as successfully refunded.
-Duplicate refund processing for the same refundable amount must be prevented.
-Refunds associated with a Return Request must reference a valid Return Request.
-The total refunded amount must never exceed the amount successfully paid by the customer.
-
-# Business Rules
-
-A Refund may be created after an approved cancellation, return, or other valid refund condition.
-A customer cannot directly mark an Order as refunded.
-Refund processing must be performed through authorized refund operations.
-Refunds must reference the original successful Payment Transaction.
-A full refund returns the eligible full amount.
-A partial refund returns only the eligible portion of the original payment.
-The total amount refunded for an Order must not exceed the amount actually paid.
-Payment-provider confirmation is required before a Refund is marked as Succeeded.
-Duplicate refund requests must not result in duplicate financial refunds.
-A successful Refund must update the relevant Order and payment information according to the applicable workflow.
-Refund information must remain traceable to the original Order, Order Item, Payment Transaction, and Return Request when applicable.
-Refunds must not modify the historical price stored in the Order Item.
-Refund records must remain available for financial reconciliation and reporting.
-Sellers cannot directly modify or approve refund financial transactions.
-The Super Admin can manage refunds according to marketplace administrative permissions.
-Refund records must not be deleted in a way that breaks payment, order, return, or settlement history.
-Relationships
+## Relationships
 
 A Refund:
+- Belongs to one **Order** and one **Order Item**.
+- References one original **Payment Transaction**.
+- Optionally references one **Return Request**.
+- Belongs to one **Customer**.
 
-Belongs to one Order.
-References one Payment Transaction.
-May reference one Order Item.
-May reference one Return Request.
-Belongs to one Customer.
-Order
+```
+Order Item
   │
-  └─── 1 : Many ─── Refund
-                         │
-                         ├─── Many : 1 ─── Payment Transaction
-                         │
-                         ├─── Many : 1 ─── Order Item
-                         │
-                         ├─── Many : 1 ─── Return Request
-                         │
-                         └─── Many : 1 ─── Customer
+  ├─── 0..1 : 1 ─── Return Request ─── 0..1 : 1 ─── Refund
+  │                                                   │
+  └─── 0..1 : 1 ──────────────────────────────────────┘
+```

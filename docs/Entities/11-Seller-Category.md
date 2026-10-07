@@ -1,134 +1,49 @@
+# Seller Category Entity
 
-##  Seller Category Entity
+## Overview
 
-### Overview
+The Seller Category entity represents a category listing authorization request and permission grant for a specific Seller Profile.
 
-The Seller Category entity represents a seller's permission to sell products within a specific category.
+Sellers must submit a request (`Requested`) to list clothing products within a category. The Super Admin reviews the request and grants (`Approved`), rejects (`Rejected`), or revokes (`Revoked`) access.
 
-A category can be used by multiple sellers, but each seller must have an independent category approval.
+## Purpose
 
-For example:
+- Track seller permission requests to list products in specific clothing categories.
+- Enforce that sellers create products exclusively within approved categories.
+- Maintain category permission statuses conforming strictly to **SRS Section 8.8**.
+- Support administrative category revocation (which automatically transitions live listings in that category to `Removed by Admin`).
 
-    Category: Shoes
-
-    Seller A → Approved
-    Seller B → Approved
-    Seller C → Rejected
-    Seller D → Pending
-
-The Seller Category entity stores these seller-specific category permissions.
-
----
-
-### Purpose
-
-- Connect sellers with categories.
-- Track category approval requests.
-- Control which categories a seller is allowed to sell in.
-- Support adding new categories after seller onboarding.
-- Maintain category approval history.
-
----
-
-### Owned By
+## Owned By
 
 Category Management
 
----
+## Attributes
 
-### Used By
+| Attribute | Type | Description |
+|---|---|---|
+| Seller Category ID | UUID | Unique identifier for the authorization record |
+| Seller ID | UUID | Seller requesting access (Foreign Key to `SellerProfile`) |
+| Category ID | UUID | Category requested (Foreign Key to `Category`) |
+| Status | Enum | Category permission status (see Section 8.8) |
+| Rejection Reason | Text (Nullable) | Feedback if request was rejected |
+| Revocation Reason | Text (Nullable) | Mandatory reason if permission was revoked by Admin |
+| Requested At | Timestamp | Timestamp when seller submitted request |
+| Reviewed At | Timestamp (Nullable) | Timestamp when Super Admin processed the request |
+| Created At | Timestamp | Record creation timestamp |
+| Updated At | Timestamp | Last modification timestamp |
 
-- Seller Management
-- Product Management
-- Super Admin
-- Product Validation
-- Reporting
-- Notification Management
+## Category Permission Statuses (SRS Section 8.8)
 
----
+The Seller Category entity strictly conforms to the statuses defined in **SRS Section 8.8**:
 
-### Attributes
+- **`Requested`:** Seller submitted authorization request to list products in a clothing category; awaiting Admin review.
+- **`Approved`:** Super Admin approved category authorization; seller can list products in this category.
+- **`Rejected`:** Super Admin rejected category authorization request with feedback.
+- **`Revoked`:** Super Admin revoked previously granted category permission; existing live listings are moved to `Removed by Admin`.
 
-| Attribute             | Description                                      |
-| --------------------- | ------------------------------------------------ |
-| Seller Category ID    | Unique identifier                                |
-| Seller ID             | Seller requesting category access                |
-| Category ID           | Category being requested                         |
-| Status                | Current approval status                          |
-| Requested At          | Timestamp when seller requested the category     |
-| Reviewed At           | Timestamp when Super Admin reviewed the request  |
-| Reviewed By           | Super Admin who reviewed the request             |
-| Rejection Reason      | Reason provided when category access is rejected |
-| Revoked At            | Timestamp when category permission was revoked   |
-| Revocation Reason     | Reason for revocation                            |
-| Created At            | Record creation timestamp                        |
-| Updated At            | Last modification timestamp                     |
-
----
-
-### Status
-
-Possible statuses include:
-
-- Pending
-- Approved
-- Rejected
-- Revoked
-
----
-
-### Validation Rules
-
-- Seller ID must reference a valid Seller.
-- Category ID must reference a valid Category.
-- A seller cannot have multiple active requests for the same category.
-- An approved seller category must reference an approved seller.
-- Rejected requests must contain a rejection reason when required.
-- Revoked permissions must contain a revocation reason when required.
-- Only authorized Super Admins can approve, reject, or revoke category permissions.
-
----
-
-### Business Rules
-
-- A seller must request approval before selling products in a category.
-- The Super Admin approves or rejects the seller's category request.
-- A seller can request additional categories after initial seller approval.
-- Approving one category does not approve any other category.
-- Multiple sellers can be approved for the same category.
-- If a category request is rejected, the seller cannot create products under that category.
-- The Super Admin can revoke a seller's category permission later.
-- A seller cannot sell new products in a revoked category.
-- Existing historical orders and products must remain traceable even if category permission is later revoked.
-- Category permission is independent for every seller.
-
----
-
-### Category Approval Lifecycle
-
-    Pending
-       │
-       ├──→ Approved
-       │       │
-       │       └──→ Revoked
-       │
-       └──→ Rejected
-
-A rejected request may be submitted again according to the category approval workflow.
-
----
-
-### Relationships
+## Relationships
 
 A Seller Category:
-
-- Belongs to one Seller.
-- Belongs to one Category.
-- May be reviewed by one Super Admin.
-
-```text
-Seller
-  │
-  └─── 1 : Many ─── Seller Category ─── Many : 1 ─── Category
-                           │
-                           └── Reviewed By ─── Super Admin 
+- Belongs to one **Seller Profile**.
+- Belongs to one **Category**.
+- Is unique for the `(Seller ID, Category ID)` pair.

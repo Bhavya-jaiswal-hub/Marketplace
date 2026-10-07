@@ -1,111 +1,48 @@
-##  Seller Verification Entity
+# Seller Verification Entity
 
-### Overview
+## Overview
 
-The Seller Verification entity represents the verification process through which a seller is reviewed and approved by the Super Admin before being allowed to sell products on the marketplace.
+The Seller Verification entity tracks the administrative identity verification lifecycle of a registered Seller Profile.
 
-It tracks the seller's verification status, submission history, review information, and rejection details.
+The Super Admin inspects submitted identity and financial documents (PAN card, Aadhaar card, address proof, photograph, bank account details, and optional GSTIN) and records an approval decision, a rejection with mandatory feedback, or account suspension/blocking.
 
----
+## Purpose
 
-### Purpose
+- Track verification lifecycle transitions for onboarding merchants.
+- Record Super Admin review timestamps, reviewer identity, and audit rejection feedback.
+- Enforce that sellers can list products only after verified approval.
 
-- Track the seller verification process.
-- Record verification status.
-- Track document submission and resubmission.
-- Record Super Admin review decisions.
-- Store rejection reasons.
-- Support seller re-submission after rejection.
-
----
-
-### Owned By
+## Owned By
 
 Seller Management
 
----
+## Used By
 
-### Used By
+- Seller Profile Management
+- Admin Dashboard (KYC Verification Queue)
+- Audit & Compliance Logging
 
-- Seller Registration
-- Seller Verification
-- Super Admin
-- Notification Management
-- Audit & Reporting
+## Attributes
 
----
+| Attribute | Type | Description |
+|---|---|---|
+| Verification ID | UUID | Unique identifier for the verification record |
+| Seller ID | UUID | Seller profile being verified (Foreign Key to `SellerProfile`, Unique) |
+| Verification Status | Enum | Status: `Pending Approval`, `Approved`, `Rejected`, `Suspended`, `Blocked` (SRS Section 8.6) |
+| Reviewed By Admin ID | UUID (Nullable) | Super Admin who reviewed documents |
+| Rejection Reason | Text (Nullable) | Mandatory feedback if verification is rejected |
+| Submitted At | Timestamp | Timestamp when documents were submitted |
+| Reviewed At | Timestamp (Nullable) | Timestamp when Super Admin processed verification |
+| Created At | Timestamp | Record creation timestamp |
+| Updated At | Timestamp | Last modification timestamp |
 
-### Attributes
+## Relationships
 
-| Attribute | Description |
-|-----------|-------------|
-| Verification ID | Unique identifier for the verification record |
-| Seller ID | Seller being verified |
-| Verification Status | Current verification status |
-| Submission Number | Identifies the verification submission attempt |
-| Submitted At | Timestamp when verification was submitted |
-| Reviewed At | Timestamp when Super Admin reviewed the submission |
-| Reviewed By | Super Admin who performed the review |
-| Rejection Reason | Reason provided when verification is rejected |
-| Created At | Record creation timestamp |
-| Updated At | Last modification timestamp |
+A Seller Verification:
+- Belongs to exactly one **Seller Profile** (1 : 1).
+- Has many associated **Verification Documents**.
+- Is reviewed by one **User** (Super Admin).
 
----
-
-### Verification Status
-
-Possible verification statuses include:
-
-- Pending
-- Approved
-- Rejected
-
-Seller account-level statuses such as `Suspended` and `Blocked` belong to the Seller Profile rather than the verification process.
-
----
-
-### Validation Rules
-
-- Every verification record must belong to a valid Seller.
-- A verification submission must contain all required documents and information.
-- A rejected verification must contain a rejection reason.
-- An approved verification must contain a reviewer and review timestamp.
-- A verification submission cannot be reviewed by an unauthorized user.
-- A completed verification record must not be modified in a way that changes its historical decision.
-
----
-
-### Business Rules
-
-- A seller must complete verification before selling products.
-- The Super Admin reviews the seller verification.
-- The Super Admin can approve or reject the verification.
-- The Super Admin may provide rejection remarks.
-- A rejected seller can submit the required information/documents again.
-- Resubmission creates a new verification attempt while preserving the previous verification history.
-- Approval activates the seller's ability to proceed with marketplace selling operations, subject to category approval.
-- Rejection prevents the seller from selling until a subsequent verification attempt is approved.
-
----
-
-### Verification Lifecycle
-
-```text
-Pending
-   │
-   ├──→ Approved
-   │
-   └──→ Rejected
-             │
-             └──→ New Submission
-                         │
-                         ▼
-                       Pending   
-
-Seller Profile
-      │
-      └─── 1 : Many ─── Seller Verification
-                              │
-                              ├── Many : 1 ─── Super Admin User
-                              │
-                              └── 1 : Many ─── Verification Documents 
+```
+Seller Profile ─── 1 : 1 ─── Seller Verification ─── 1 : Many ─── Verification Document
+```

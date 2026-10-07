@@ -1,142 +1,90 @@
-Order Entity
+# Order Entity (Parent Order)
 
-# Overview
+## Overview
 
-The Order entity represents a confirmed purchase made by a customer on the marketplace.
+The Order entity represents the overarching customer purchase transaction resulting from a unified checkout session.
 
-An Order is created after the customer completes the checkout process and the system successfully validates the required product, inventory, pricing, customer, and payment information.
+An Order consolidates clothing items purchased across one or multiple sellers. The platform captures a single payment via the payment gateway into the marketplace account, and internally splits the order into discrete, seller-specific **Order Items** for independent fulfillment, delivery, return, and settlement workflows.
 
-An Order preserves the important information about the purchase so that future changes to the Product, price, commission, or inventory do not change the historical order.
+## Purpose
 
- # Purpose
-Store confirmed customer purchases.
-Associate purchases with the correct customer.
-Track the overall order status.
-Store the financial snapshot of the order.
-Support payment, fulfillment, shipping, return, refund, and settlement workflows.
-Preserve historical purchase information.
-Provide a central reference for all order-related operations.
- # Owned By
+- Consolidate multi-vendor items into a single customer order transaction.
+- Track overarching fulfillment state derived from child Order Items.
+- Store total financial snapshots (Tax-inclusive Subtotal, Shipping Amount, Total Captured).
+- Associate the purchase with the Customer and delivery Shipping Address.
+- Serve as the parent container for payment transactions and split order items.
+
+## Owned By
 
 Order Management
 
-# Used By
-Customer Management
-Product Management
-Inventory Management
-Shopping Management
-Checkout
-Payment Management
-Shipping Management
-Return & Refund Management
-Settlement Management
-Notification Management
-Seller Management
-Admin Dashboard
- # Attributes
-Attribute	Description
-Order ID	Unique identifier for the order
-Customer ID	Customer who placed the order
-Order Number	Human-readable unique order reference
-Shipping Address ID	Address associated with the order shipment
-Order Status	Current overall status of the order
-Payment Status	Current payment status of the order
-Subtotal	Total product value before additional charges
-Shipping Amount	Shipping charges applied to the order
-Discount Amount	Total discount applied to the order
-Tax Amount	Tax amount applied to the order, when applicable
-Total Amount	Final amount payable by the customer
-Created At	Order creation timestamp
-Updated At	Last modification timestamp
+## Used By
 
-# Order Status
+- Customer Management
+- Shopping Management & Checkout Engine
+- Payment Management
+- Order Item Management
+- Return & Refund Management
+- Notification Management
+- Admin Dashboard & Reporting
 
-Possible statuses include:
+## Attributes
 
-Pending
-Confirmed
-Processing
-Shipped
-Delivered
-Cancelled
-Returned
-Refunded
+| Attribute | Type | Description |
+|---|---|---|
+| Order ID | UUID | Unique identifier for the parent order |
+| Customer ID | UUID | Customer who placed the order (Foreign Key to `User`/`CustomerProfile`) |
+| Order Number | String | Unique, human-readable reference (e.g., `ORD-20261005-XXXX`) |
+| Shipping Address ID | UUID | Snapshot reference of delivery address |
+| Order Status | Enum | Parent order status derived from child items (see Section 8.2) |
+| Payment Status | Enum | Payment lifecycle status (see Section 8.4) |
+| Subtotal | Numeric | Sum of all item subtotals (tax-inclusive) |
+| Shipping Amount | Numeric | Total platform shipping charges applied across all seller shipments |
+| Total Amount | Numeric | Final total captured from customer ($\text{Subtotal} + \text{Shipping Amount}$) |
+| Created At | Timestamp | Order placement timestamp |
+| Updated At | Timestamp | Last modification timestamp |
 
-The exact status transitions depend on the final order, shipping, cancellation, return, and refund workflows.
+## Parent Order Statuses (SRS Section 8.2)
 
-Payment Status
+The parent Order status is **derived from its child Order Items**:
 
-Possible payment statuses include:
+- **`Placed`:** All items in the order are in `Placed` status.
+- **`Partially Shipped`:** At least one item is `Shipped`/`Delivered`, while others remain `Placed`/`Packed`.
+- **`Partially Delivered`:** At least one item is `Delivered`, while others are in transit or processing.
+- **`Delivered`:** All non-cancelled items in the order have been `Delivered`.
+- **`Partially Cancelled`:** One or more items are `Cancelled`, while other items continue fulfillment.
+- **`Cancelled`:** All items in the order have been `Cancelled`.
+- **`Under Dispute`:** One or more items are in `Not Received - Under Dispute` status awaiting Admin arbitration.
 
-Pending
-Paid
-Failed
-Partially Refunded
-Refunded
+## Payment Statuses (SRS Section 8.4)
 
-Payment status is maintained separately from Order Status because an order's fulfillment lifecycle and payment lifecycle can progress independently.
+- **`Pending`:** Payment session initiated with gateway; awaiting confirmation.
+- **`Paid`:** Gateway confirmed successful fund capture into marketplace account.
+- **`Failed`:** Payment attempt failed, declined, or timed out.
+- **`Partially Refunded`:** One or more items/cancellations refunded; remaining balance held.
+- **`Refunded`:** Total transaction amount fully refunded to original customer payment method.
 
-# Validation Rules
-Every Order must belong to a valid Customer.
-Order Number must be unique.
-Order must contain at least one Order Item.
-Total Amount cannot be negative.
-Subtotal cannot be negative.
-Shipping Amount cannot be negative.
-Discount Amount cannot be negative.
-Tax Amount cannot be negative.
-Order Status must contain a valid status.
-Payment Status must contain a valid status.
-Product availability and inventory must be validated before order confirmation.
-The final product price must be captured when the Order is created.
-The applicable commission must be captured as part of the order's financial snapshot.
-Historical order information must not depend on the current Product price or current commission configuration.
-A customer can access only their own orders.
-A seller can access order information relevant to their own products.
-An Order cannot be confirmed without successful completion of the required checkout and payment conditions.
+## Business Rules (SRS FR-8, BR-8, BR-10)
 
-# Business Rules
-An Order is created from the customer's Cart during checkout.
-An Order can contain multiple Order Items.
-The customer must have sufficient product availability before the order is confirmed.
-Inventory must be updated as part of successful order processing.
-The price stored in the Order represents the price applicable when the order was created.
-Future changes to the Product price must not change an existing Order.
-The commission applicable when the order was created must be preserved in the order's financial information.
-Future commission changes must not recalculate historical orders.
-An Order must preserve the relevant customer, product, price, commission, and financial information required for historical accuracy.
-Order status changes must follow the defined order lifecycle.
-Payment status must be tracked independently from Order Status.
-A customer can view their own orders and order details.
-A customer cannot modify another customer's order.
-Sellers can view and manage orders containing their own products according to their marketplace permissions.
-The Super Admin can view and manage marketplace orders according to administrative permissions.
-Order cancellation, return, and refund operations must follow the applicable marketplace business rules.
-Historical orders must not be deleted in a way that breaks financial, settlement, refund, or reporting records.
-Order information must remain available for settlement and reporting after the order lifecycle is completed.
-Relationships
+1. **Unified Payment Capture:** Single checkout payment captured into the marketplace account regardless of the number of distinct sellers.
+2. **Tax-Inclusive Pricing:** All product prices and subtotals are tax-inclusive; the platform does not calculate or deduct separate tax line items in Version 1.
+3. **Admin-Configurable Shipping Rules:** Flat shipping fee per seller shipment and free shipping threshold per seller subtotal are dynamically evaluated at checkout.
+4. **Immutable Snapshot:** The parent order total and its split item snapshots cannot be altered after payment confirmation.
+
+## Relationships
 
 An Order:
+- Belongs to one **Customer**.
+- Contains one or more **Order Items** (split by Seller).
+- Is associated with one **Shipping Address**.
+- Has one or more **Payment Transactions**.
 
-Belongs to one Customer.
-Contains one or more Order Items.
-Is associated with a Shipping Address.
-Is associated with Payment information.
-May have Shipment information.
-May have Return and Refund records.
-May contribute to Seller Settlement records.
+```
 Customer
   │
   └─── 1 : Many ─── Order
                        │
-                       ├─── 1 : Many ─── Order Item
-                       │
+                       ├─── 1 : Many ─── Order Item (Seller Split)
                        ├─── Many : 1 ─── Shipping Address
-                       │
-                       ├─── 1 : Many ─── Payment
-                       │
-                       ├─── 1 : Many ─── Shipment
-                       │
-                       ├─── 1 : Many ─── Return / Refund
-                       │
-                       └─── 1 : Many ─── Seller Settlement
+                       └─── 1 : Many ─── Payment Transaction
+```

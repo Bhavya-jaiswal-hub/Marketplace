@@ -1,95 +1,47 @@
-##  Category Entity
+# Category Entity
 
-### Overview
+## Overview
 
-The Category entity represents a product category available within the marketplace.
+The Category entity represents the standardized classification tree for **Clothing & Apparel** in the marketplace.
 
-Categories organize products into logical groups and may contain subcategories.
+The catalog in Version 1 is strictly restricted to clothing (Men's, Women's, and Kids' apparel). Each subcategory is assigned exactly one Admin-managed **Size Set** (data entity `SizeSet`) from which merchants select variant sizes, rather than using a rigid hardcoded enum.
 
-A category can be created by the Super Admin for the marketplace and may be used by sellers only after the seller receives approval to sell within that category.
+## Purpose
 
----
+- Maintain the hierarchical taxonomy for clothing categories and subcategories.
+- Link subcategories to a specific `SizeSet` governing valid product variant sizes.
+- Associate commission percentages with categories via `CategoryCommission`.
+- Enforce that sellers list products only in categories for which they hold active approval.
 
-### Purpose
-
-- Organize marketplace products.
-- Support category and subcategory structures.
-- Provide a classification system for products.
-- Support seller category approval.
-- Support category-based commission configuration.
-
----
-
-### Owned By
+## Owned By
 
 Category Management
 
----
+## Attributes
 
-### Used By
+| Attribute | Type | Nullable | Description |
+|---|---|---|---|
+| `id` | UUID | No | Primary key |
+| `parent_id` | UUID | Yes | Parent category reference for hierarchy (Self-referential FK) |
+| `size_set_id` | UUID | Yes | Foreign key to assigned `SizeSet` (Mandatory for leaf subcategories) |
+| `name` | String(100) | No | Category display name (e.g., "Men's Shirts", "Women's Sarees") |
+| `slug` | String(100) | No | Unique URL slug |
+| `description` | Text | Yes | Category description |
+| `is_active` | Boolean | No | Flag indicating whether category is active |
+| `created_at` | Timestamp | No | Record creation timestamp |
+| `updated_at` | Timestamp | No | Last modification timestamp |
 
-- Seller Management
-- Product Management
-- Marketplace
-- Search
-- Inventory
-- Order Management
-- Settlement Management
-- Reporting
-- Super Admin
+## Clothing Hierarchy (SRS FR-3, BR-3)
 
----
+- **Men's Clothing:** Shirts, T-Shirts, Trousers, Jeans, Ethnic Wear, Jackets & Outerwear.
+- **Women's Clothing:** Dresses, Tops & Tees, Sarees & Ethnic Wear, Kurtas, Skirts & Pants, Winterwear.
+- **Kids' Clothing:** Boys' Clothing, Girls' Clothing, Baby & Toddler Wear.
+*(Footwear and accessories are deferred to Version 2).*
 
-### Attributes
+## Relationships
 
-| Attribute | Description |
-|-----------|-------------|
-| Category ID | Unique identifier for the category |
-| Parent Category ID | Reference to the parent category when applicable |
-| Name | Category name |
-| Slug | URL-friendly unique identifier |
-| Description | Description of the category |
-| Owner Type | Identifies whether the category belongs to the Super Admin or is a seller category context |
-| Owner ID | Owner reference when applicable |
-| Status | Current category status |
-| Created By | User who created the category |
-| Created At | Record creation timestamp |
-| Updated At | Last modification timestamp |
-
----
-
-### Category Structure
-
-Categories may contain subcategories.
-
-Example:
-
-```text
-Clothing
-│
-├── Men's Clothing
-│   ├── T-Shirts
-│   ├── Shirts
-│   └── Jeans
-│
-└── Women's Clothing
-    ├── Dresses
-    ├── Tops
-    └── Jeans  
-
-Notes
-
-A Category represents the marketplace classification itself.
-
-A seller's permission to sell within a category is not stored directly on the Category entity.
-
-That permission is represented separately by the Seller Category entity.
-
-This separation allows: 
-
-Category: Shoes
-
-Seller A → Approved
-Seller B → Approved
-Seller C → Rejected
-Seller D → Pending  
+- **Category** can have one parent **Category** and many child **Categories** (`1..*`).
+- **Category** belongs to one optional **Size Set** (`N..1`, mandatory for leaf subcategories).
+- **Category** has one active **Category Commission** rule (and historical records).
+- **Category** has many **Seller Category** authorizations.
+- **Category** owns many **Products**.

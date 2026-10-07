@@ -1,118 +1,113 @@
-Order Item Entity
- # Overview
+# Order Item Entity
 
-The Order Item entity represents a specific product purchased as part of an Order.
+## Overview
 
-An Order can contain multiple Order Items, with each Order Item storing the product, quantity, and historical price information applicable when the order was created.
+The Order Item entity represents a single clothing **Product Variant** purchased from a specific seller within a customer's parent Order.
 
-Order Item preserves the purchase snapshot so that future changes to the Product price, product information, or seller information do not affect historical order records.
+The platform internally splits each parent order into discrete Order Items. Each item is fulfilled, tracked, cancelled, returned, and settled independently.
 
-# Purpose
-Store individual products purchased within an Order.
-Store the quantity purchased.
-Preserve the product price at the time of purchase.
-Associate the purchased product with its seller.
-Support order fulfillment, returns, refunds, and settlements.
-Preserve historical purchase information.
+Every Order Item stores an **immutable financial snapshot** (product title, SKU, size, color, unit price, commission rate, commission amount, and shipping fee share) captured at the moment of payment confirmation.
 
-# Owned By
+## Purpose
 
-Order Management
+- Track independent fulfillment lifecycle for each purchased variant.
+- Associate each purchased item with its owning Seller.
+- Enforce pre-shipment cancellation rules before dispatch (`Shipped`).
+- Record seller manual delivery confirmation (`Delivered`) with courier and tracking details.
+- Manage the customer **"Not received" dispute** workflow within the 7-day post-delivery window, target 3-business-day SLA, seller proof submission, and Admin arbitration.
+- Preserve immutable financial records for commission calculation, refunds, and weekly seller settlements.
 
-# Used By 
+## Owned By
 
 Order Management
-Product Management
-Inventory Management
-Seller Management
-Payment Management
-Shipping Management
-Return & Refund Management
-Settlement Management
-Customer Management
-Admin Dashboard
 
- # Attributes
+## Used By
 
-Attribute	Description
-Order Item ID	Unique identifier for the order item
-Order ID	Order associated with the item
-Product ID	Product purchased by the customer
-Seller ID	Seller who owns the purchased product
-Product Name Snapshot	Product name at the time of purchase
-Unit Price	Product price per unit at the time of purchase
-Quantity	Number of units purchased
-Discount Amount	Discount applied to the order item
-Tax Amount	Tax applied to the order item, when applicable
-Subtotal	Total value of the item before applicable additional charges
-Commission Rate	Commission percentage applicable when the order was created
-Commission Amount	Commission amount calculated for the order item
-Created At	Record creation timestamp
-Updated At	Last modification timestamp
-Price Snapshot
+- Seller Management (Fulfillment Queue)
+- Inventory Management (Restocking on Cancellation/Return)
+- Return & Refund Management (5-Day Return Requests)
+- Settlement Management (Weekly Payouts & Adjustments)
+- Customer Management (Order History & Tracking)
+- Admin Dashboard (Dispute Arbitration & Moderation)
+- Reporting & Financial Analytics
 
-The Order Item must preserve the price information applicable when the order was created.
+## Attributes
 
-For example:
+| Attribute | Type | Nullable | Description |
+|---|---|---|---|
+| `id` | UUID | No | Unique identifier for the order item |
+| `order_id` | UUID | No | Parent order reference (Foreign Key to `Order`) |
+| `product_id` | UUID | No | Parent clothing product (Foreign Key to `Product`) |
+| `variant_id` | UUID | No | Purchased variant (Foreign Key to `ProductVariant`) |
+| `seller_id` | UUID | No | Seller responsible for fulfillment (Foreign Key to `SellerProfile` or Super Admin) |
+| `status` | Enum | No | Order item status (see Section 8.1) |
+| `courier_name` | String(100) | Yes | Logistics courier recorded by seller upon dispatch |
+| `tracking_number` | String(100) | Yes | Courier AWB tracking number recorded upon dispatch |
+| `shipped_at` | Timestamp | Yes | Timestamp when seller marked item as `Shipped` |
+| `delivered_at` | Timestamp | Yes | Timestamp when seller manually marked item as `Delivered` |
+| `product_name_snapshot` | String | No | Product name at time of purchase |
+| `sku_snapshot` | String | No | Variant SKU at time of purchase |
+| `size_snapshot` | String | No | Variant size selected at time of purchase |
+| `color_snapshot` | String | No | Variant color selected at time of purchase |
+| `unit_price` | Numeric(10, 2) | No | Selling price per unit (tax-inclusive snapshot) |
+| `quantity` | Integer | No | Number of units purchased ($\ge 1$) |
+| `item_subtotal` | Numeric(10, 2) | No | Total item value ($\text{unit\_price} \times \text{quantity}$) |
+| `commission_rate` | Numeric(5, 2) | No | Category commission percentage locked at purchase |
+| `commission_amount` | Numeric(10, 2) | No | Calculated platform commission ($\text{item\_subtotal} \times \text{commission\_rate}$) |
+| `shipping_fee_share` | Numeric(10, 2) | No | Allocated share of the flat seller shipment fee |
+| `not_received_reported_at` | Timestamp | Yes | Timestamp when customer reported non-delivery |
+| `dispute_status` | Enum | No | Dispute status: `NONE`, `OPEN`, `RESOLVED_REFUNDED`, `RESOLVED_DELIVERED` (default: `NONE`) |
+| `sla_due_at` | Timestamp | Yes | Target dispute SLA deadline (3 business days from report timestamp) |
+| `seller_proof_notes` | Text | Yes | Seller's response, tracking notes, or delivery verification evidence |
+| `seller_proof_document_url` | String(255) | Yes | URL to delivery slip, POD signature, or courier proof document |
+| `resolution_outcome` | Enum | Yes | Resolution outcome: `CUSTOMER_REFUND_UPHELD`, `DISPUTE_REJECTED` |
+| `resolved_by` | UUID | Yes | Foreign Key to `User` (Super Admin who resolved dispute) |
+| `resolved_at` | Timestamp | Yes | Timestamp when dispute was resolved |
+| `dispute_admin_notes` | Text | Yes | Resolution explanation recorded by Super Admin |
+| `created_at` | Timestamp | No | Record creation timestamp |
+| `updated_at` | Timestamp | No | Last modification timestamp |
 
-Product Current Price = ₹1,500
-Order Item Unit Price = ₹1,200
+## Order Item Statuses (SRS Section 8.1)
 
-If the seller later changes the product price to ₹1,500, the existing Order Item must continue to use:
+The Order Item entity strictly conforms to the statuses defined in **SRS Section 8.1**:
 
-Unit Price = ₹1,200
+- **`Placed`:** Order created and payment confirmed; item awaiting seller fulfillment.
+- **`Packed`:** Item packed and prepared for courier pickup by the seller.
+- **`Shipped`:** Item handed over to courier; courier name and AWB tracking number recorded.
+- **`Delivered`:** Seller manually marked item as delivered to customer (tracking ID recorded at `Shipped`); initiates 5-day return window and 7-day settlement countdown.
+- **`Cancelled`:** Item cancelled prior to shipping by customer or seller; gateway refund processed.
+- **`Not Received - Under Dispute`:** Customer reported item not received within 7 days of seller marking `Delivered`; escalated to Super Admin dispute review and blocks weekly settlement calculation until resolved.
 
-This ensures historical orders remain financially accurate.
+## Business Rules (SRS FR-9, FR-12, FR-13, BR-7, BR-9, BR-11, BR-12, BR-13)
 
- # Validation Rules
+1. **Pre-Shipment Cancellation Cutoff (SRS BR-9, C-6):**
+   - Customers may cancel any individual order item at any time **before** it is marked `Shipped`.
+   - Once an item is `Shipped`, cancellation is disabled; customer must await delivery and initiate a return request within 5 days.
+   - Sellers may cancel an item prior to shipping if stock is unavailable (triggers full customer refund).
+2. **Partial vs. Full Cancellation Shipping Allocation (SRS FR-9, BR-9, AC-5):**
+   - If a customer partially cancels items from a seller shipment and at least one item remains active, the flat shipping fee is retained.
+   - If **all** items in that seller's shipment are cancelled, the shipping fee for that seller is refunded in full.
+3. **Manual Delivery Confirmation (SRS FR-9, AC-5):**
+   - Version 1 operates without direct courier API integration. The seller manually marks the item `Delivered` in the seller portal.
+   - The `delivered_at` timestamp initiates the **5-day return window** and the **7-day settlement holding countdown**.
+4. **7-Day "Not Received" Dispute Protection & SLA (SRS FR-9, BR-11, BR-12, AC-5):**
+   - Customers may report "Not received" within **7 calendar days** of the seller's `Delivered` mark.
+   - Reporting transitions the item to `Not Received - Under Dispute`, sets `dispute_status = OPEN`, sets `sla_due_at = 3 business days`, escalates the case to Super Admin, and **freezes weekly settlement** for that item until resolved.
+   - Super Admin targets resolution within **3 business days**; the dashboard flags overdue disputes. There is no automated resolution on timeout.
+   - Sellers may attach delivery proof (`seller_proof_notes`, `seller_proof_document_url`).
+   - If resolved as `CUSTOMER_REFUND_UPHELD`, a full refund is issued to the customer and charged to the seller as a `DISPUTE_CHARGE_DEBIT` in the `SellerAdjustment` ledger.
+   - If resolved as `DISPUTE_REJECTED`, the item reverts and becomes eligible for weekly settlement (once the 7-day post-delivery hold has elapsed).
+5. **Immutable Financial Snapshot (SRS FR-5, FR-8, C-5):**
+   - Price, SKU, Size, Color, and Commission values stored on the order item are permanent and never recalculate when catalog or commission rates change in the future.
+6. **Admin Direct Retail (SRS FR-4, BR-7):**
+   - For products sold directly by the Super Admin, `commission_rate = 0%`, `commission_amount = 0`, and no settlement records are generated.
 
-Every Order Item must belong to a valid Order.
-Every Order Item must reference a valid Product.
-Every Order Item must reference the applicable Seller.
-Quantity must be greater than zero.
-Unit Price cannot be negative.
-Discount Amount cannot be negative.
-Tax Amount cannot be negative.
-Subtotal cannot be negative.
-Commission Rate must be between 0% and 100%.
-Commission Amount cannot be negative.
-Historical unit price must be captured when the Order Item is created.
-Historical commission information must be captured when required for settlement.
-An Order Item cannot exist without an associated Order.
-An Order Item must not be modified in a way that changes the historical financial meaning of a completed order.
-
-# Business Rules
-
-An Order must contain one or more Order Items.
-Each Order Item represents one purchased Product.
-A Product can appear in many different Order Items across different Orders.
-Quantity represents the number of units purchased.
-The Unit Price must represent the product price applicable at the time of purchase.
-Changes to the current Product price must not modify the Unit Price of an existing Order Item.
-The product name snapshot should preserve the product name applicable at the time of purchase.
-The Seller associated with the Order Item must remain identifiable for settlement and reporting.
-The applicable commission rate must be preserved for historical settlement calculations.
-Commission for an existing Order Item must not be recalculated using a newer commission configuration.
-Order Item information must remain available for fulfillment, returns, refunds, and settlement processing.
-A customer can view Order Items belonging to their own Orders.
-A seller can view Order Items associated with their own products.
-Order Items must not be deleted in a way that breaks historical order, payment, refund, or settlement records.
-Relationships
+## Relationships
 
 An Order Item:
-
-Belongs to one Order.
-References one Product.
-Belongs to one Seller through the purchased Product.
-May be associated with Shipment, Return, Refund, and Settlement records.
-Order
-  │
-  └─── 1 : Many ─── Order Item
-                         │
-                         ├─── Many : 1 ─── Product
-                         │
-                         ├─── Many : 1 ─── Seller
-                         │
-                         ├─── 1 : Many ─── Return / Refund
-                         │
-                         └─── 1 : Many ─── Settlement
+- Belongs to one parent **Order** (`N..1`).
+- References one **Product** and one specific **Product Variant** (`N..1`).
+- Belongs to one **Seller** (or Super Admin) (`N..1`).
+- May be associated with one **Return Request** (`0..1`) and **Refund** (`0..1`).
+- May generate **Seller Adjustment** records for disputes (`1..*`).
+- Contributes to one **Settlement Item** (for third-party sellers once eligible).

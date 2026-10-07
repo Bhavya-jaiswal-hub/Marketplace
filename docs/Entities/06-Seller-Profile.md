@@ -1,131 +1,87 @@
-##  Seller Profile Entity
+# Seller Profile Entity
 
-### Overview
+## Overview
 
-The Seller Profile entity represents the seller-specific information associated with a User who wants to sell products on the marketplace.
+The Seller Profile entity represents the seller-specific business record associated with a registered User authorized or requesting to sell clothing apparel on the marketplace.
 
-A Seller Profile is created for a User who registers as a seller.
+Sellers onboard as either an **Individual** or a **Business**, submitting mandatory KYC identification proofs (PAN, Aadhaar, address proof, photograph, bank account details, and an **optional GSTIN field** for Business merchants).
 
-The Seller Profile contains seller-specific business information and maintains the seller's marketplace account status.
+## Purpose
 
----
+- Store seller merchant details, business type, contact info, and optional GSTIN.
+- Associate the merchant profile with an authenticated User account.
+- Maintain the authoritative Seller Account Status (`Pending Approval`, `Approved`, `Rejected`, `Suspended`, `Blocked`).
+- Provide the primary ownership entity for clothing product listings, order fulfillment queues, and weekly settlements.
 
-### Purpose
-
-- Store seller-specific information.
-- Associate a seller with a User account.
-- Track seller account status.
-- Support seller onboarding and verification.
-- Support both Individual and Business sellers.
-
----
-
-### Owned By
+## Owned By
 
 Seller Management
 
----
-
-### Used By
+## Used By
 
 - Seller Verification
-- Category Management
-- Product Management
+- Category Management & Category Authorization
+- Product Management & Product Variant Management
 - Inventory Management
-- Order Management
-- Settlement Management
-- Notification Management
-- Admin Dashboard
+- Order Management (Fulfillment Queue)
+- Settlement Management (Weekly Payouts)
+- Admin Dashboard (Seller KYC Review & Moderation)
 
----
+## Attributes
 
-### Attributes
+| Attribute | Type | Description |
+|---|---|---|
+| Seller ID | UUID | Unique identifier for the seller profile |
+| User ID | UUID | User account reference (Foreign Key to `User`, Unique) |
+| Seller Type | Enum | Merchant classification: `INDIVIDUAL` or `BUSINESS` |
+| Business Name | String (Nullable) | Registered business name (mandatory for `BUSINESS` type) |
+| Display Name | String | Storefront brand / seller display name shown to customers |
+| GSTIN | String (Nullable) | Optional Goods and Services Tax Identification Number |
+| Status | Enum | Seller account status (see Section 8.6) |
+| Contact Email | String | Operational contact email address |
+| Contact Mobile | String | Operational contact mobile number |
+| Created At | Timestamp | Record creation timestamp |
+| Updated At | Timestamp | Last modification timestamp |
 
-| Attribute | Description |
-|-----------|-------------|
-| Seller ID | Unique identifier for the seller |
-| User ID | Associated User account |
-| Seller Type | Individual or Business |
-| Business Name | Business name when applicable |
-| Display Name | Name displayed to customers |
-| Seller Status | Current seller account status |
-| Contact Email | Seller contact email |
-| Contact Mobile | Seller contact number |
-| Created At | Seller profile creation timestamp |
-| Updated At | Last modification timestamp |
+## Seller Account Statuses (SRS Section 8.6)
 
----
+The Seller Profile strictly conforms to the statuses defined in **SRS Section 8.6**:
 
-### Seller Types
+- **`Pending Approval`:** Newly registered seller awaiting Super Admin KYC document verification.
+- **`Approved`:** Verified seller authorized to request categories, list clothing products, and fulfill orders.
+- **`Rejected`:** Verification documents rejected by Super Admin with mandatory feedback (seller may resubmit).
+- **`Suspended`:** Reversible administrative suspension (listings temporarily hidden; seller dashboard restricted).
+- **`Blocked`:** Permanent or indefinite administrative block due to fraud, severe policy violations, or malicious activity (access barred).
 
-The marketplace supports:
+## Validation Rules
 
-- Individual Seller
-- Business Seller
+1. Every Seller Profile must belong to a valid authenticated `User`.
+2. `Seller Type` is mandatory (`INDIVIDUAL` or `BUSINESS`).
+3. `Display Name`, `Contact Email`, and `Contact Mobile` are mandatory.
+4. `Business Name` is mandatory if `Seller Type = BUSINESS`.
+5. `GSTIN`, if provided, must follow the Indian 15-character alphanumeric GST format.
+6. Sellers in `Pending Approval`, `Rejected`, `Suspended`, or `Blocked` statuses cannot publish active product listings or initiate fulfillment operations.
 
-The seller type determines which seller information and verification requirements apply.
-
----
-
-### Seller Status
-
-Possible seller statuses include:
-
-- Pending
-- Approved
-- Rejected
-- Suspended
-- Blocked
-
----
-
-### Validation Rules
-
-- Every Seller Profile must belong to exactly one User.
-- A User cannot have multiple Seller Profiles.
-- Seller Type is mandatory.
-- Seller Status is mandatory.
-- Required seller information must be provided before verification.
-- Business Name is required when the seller is registered as a Business, according to the applicable business requirements.
-- Seller contact information must be valid.
-
----
-
-### Business Rules
-
-- A seller must complete the required registration information before verification.
-- A seller cannot sell products until the seller account is approved.
-- A rejected seller may resubmit the required information/documents.
-- A suspended seller cannot perform seller operations.
-- A blocked seller cannot access seller selling operations.
-- Seller approval is performed by the Super Admin.
-- Seller registration as an Individual or Business must be preserved as part of the seller profile.
-
----
-
-### Relationships
+## Relationships
 
 A Seller Profile:
+- Belongs to one **User**.
+- Has one **Seller Verification** record.
+- Has many **Verification Documents** (PAN, Aadhaar, Address, Photo).
+- Has one or more **Seller Addresses** (Pickup / Return address).
+- Has many **Seller Category** authorizations.
+- Owns many **Products** and **Product Variants**.
+- Has many **Settlement** records.
 
-- Belongs to one User.
-- Has one Seller Verification record.
-- Has one Seller Address or associated seller address records as defined by the final address design.
-- Can have many Seller Category records.
-- Can own many Products.
-- Can have many Orders through Order Items.
-- Can have many Settlements.
-
-High-level relationship:
-
-```text
+```
 User
   │
   └─── 1 : 1 ─── Seller Profile
-                    │
-                    ├── 1 : 1 ─── Seller Verification
-                    │
-                    ├── 1 : Many ─── Seller Categories
-                    │
-                    ├── 1 : Many ─── Products
-                    │
-                    └── 1 : Many ─── Settlements 
+                       │
+                       ├─── 1 : 1 ─── Seller Verification
+                       ├─── 1 : Many ─── Verification Document
+                       ├─── 1 : Many ─── Seller Address
+                       ├─── 1 : Many ─── Seller Category
+                       ├─── 1 : Many ─── Product
+                       └─── 1 : Many ─── Settlement
+```

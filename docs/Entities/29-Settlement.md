@@ -1,119 +1,85 @@
-Settlement Entity
+# Settlement Entity
 
-# Overview
+## Overview
 
-The Settlement entity represents the financial settlement of money owed to a seller by the marketplace.
+The Settlement entity represents the weekly manual financial payout compiled and executed by the Super Admin for an approved third-party Seller.
 
-A settlement is created after considering the seller's eligible order amounts, marketplace commission, refunds, returns, and other applicable financial adjustments.
+Customer payments are held in the marketplace payment gateway account upon order delivery. Weekly, the Super Admin initiates a manual settlement run, compiling all order items delivered at least 7 days prior with no open returns, inspection disputes, or "Not received" claims.
 
-It provides the financial record used to determine how much money should be paid to a seller.
+After external bank/UPI disbursement, the Super Admin enters the mandatory **Bank Transaction Reference Number**, which permanently locks the settlement record as immutable.
 
-# Purpose 
+If deductions and carried-forward debits exceed gross earnings ($\text{Net Calculation} < 0$), the payout is recorded as **₹0.00** (never a negative settlement record) and the shortfall is recorded in the `SellerAdjustment` ledger to be carried forward to the seller's next settlement run.
 
-Calculate and record seller settlement amounts.
-Track money owed to sellers.
-Account for marketplace commission.
-Account for refunds and other applicable adjustments.
-Track settlement status.
-Support seller payouts.
-Provide financial records for reconciliation and reporting.
+## Purpose
 
-# Owned By
+- Calculate itemized net payable earnings per seller on a weekly cycle.
+- Account for platform category commissions, shipping collected, return adjustments, seller-fault return shipping deductions, and previous carried-forward debits.
+- Handle negative balance shortfalls cleanly via the Seller Adjustment ledger.
+- Record the external bank/UPI payment reference for financial reconciliation.
+- Serve as the permanent, immutable ledger for seller payouts.
+- Generate downloadable weekly settlement statements for sellers.
 
-Settlement Management
-
-# Used By 
+## Owned By
 
 Settlement Management
-Seller Management
-Order Management
-Order Item Management
-Payment Management
-Return & Refund Management
-Commission Management
-Admin Dashboard
-Reporting
 
-# Attributes 
+## Used By
 
-Attribute	Description
-Settlement ID	Unique identifier for the settlement
-Seller ID	Seller receiving the settlement
-Settlement Period From	Start of the settlement period
-Settlement Period To	End of the settlement period
-Gross Amount	Total eligible order amount before deductions
-Commission Amount	Marketplace commission deducted from the seller
-Refund Amount	Refund amount deducted from the settlement
-Adjustment Amount	Other applicable financial adjustments
-Net Settlement Amount	Final amount payable to the seller
-Currency	Currency used for the settlement
-Settlement Status	Current status of the settlement
-Processed At	Timestamp when the settlement was processed
-Created At	Record creation timestamp
-Updated At	Last modification timestamp 
+- Seller Management (Seller Payout History & Statements)
+- Order Management (Order Item Settlement Locking)
+- Commission Management (Marketplace Revenue Tracking)
+- Return & Refund Management (Return Adjustments & Fault Deductions)
+- Super Admin Finance Dashboard (Weekly Settlement Execution Queue)
+- Financial Audit & Tax Reporting
 
-# Settlement Status
+## Attributes
 
-Possible statuses include:
+| Attribute | Type | Nullable | Description |
+|---|---|---|---|
+| `id` | UUID | No | Unique identifier for the settlement |
+| `seller_id` | UUID | No | Seller receiving the settlement (Foreign Key to `SellerProfile`) |
+| `period_from` | Date | No | Start date of settlement calculation period |
+| `period_to` | Date | No | End date of settlement calculation period |
+| `gross_product_sales` | Numeric(10, 2) | No | Total gross value of eligible items delivered $\ge 7$ days ago |
+| `total_shipping_collected` | Numeric(10, 2) | No | Shipping fees collected from customers for eligible items |
+| `total_platform_commission` | Numeric(10, 2) | No | Total category commission retained by the marketplace |
+| `total_return_adjustments` | Numeric(10, 2) | No | Adjustments for refunded items or post-delivery clawbacks |
+| `total_seller_fault_return_shipping` | Numeric(10, 2) | No | Total return shipping deductions for seller-fault returns |
+| `previous_balance_adjustment` | Numeric(10, 2) | No | Carried-forward seller debit balance applied from previous settlements |
+| `net_calculated_amount` | Numeric(10, 2) | No | Calculated net amount (can be negative before floor) |
+| `payout_amount` | Numeric(10, 2) | No | Actual disbursed amount ($\max(0, \text{net\_calculated\_amount})$) |
+| `carried_forward_debit_balance` | Numeric(10, 2) | No | New shortfall debit created if $\text{net\_calculated\_amount} < 0$ (otherwise 0) |
+| `bank_transaction_reference` | String(100) | Yes | Mandatory external bank/UPI reference number (required if payout > 0) |
+| `status` | Enum | No | Settlement status: `Calculated`, `Settled` |
+| `settled_at` | Timestamp | Yes | Timestamp when Super Admin entered reference and locked record |
+| `settled_by_admin_id` | UUID | Yes | Super Admin who executed the settlement run |
+| `created_at` | Timestamp | No | Record creation timestamp |
+| `updated_at` | Timestamp | No | Last modification timestamp |
 
-Pending
-Processing
-Completed
-Failed
-Cancelled
+## Net Payable Calculation Formula (SRS FR-12, BR-12)
 
-A settlement should be considered completed only after the applicable seller payout has been successfully processed.
+$$\text{net\_calculated\_amount} = \text{gross\_product\_sales} + \text{total\_shipping\_collected} - \text{total\_platform\_commission} - \text{total\_return\_adjustments} - \text{total\_seller\_fault\_return\_shipping} - \text{previous\_balance_adjustment}$$
 
-# Validation Rules  
+- If $\text{net\_calculated\_amount} \ge 0$:
+  $$\text{payout\_amount} = \text{net\_calculated\_amount}, \quad \text{carried\_forward\_debit\_balance} = 0$$
+- If $\text{net\_calculated\_amount} < 0$:
+  $$\text{payout\_amount} = 0.00, \quad \text{carried\_forward\_debit\_balance} = |\text{net\_calculated\_amount}|$$
+  *(A new `SETTLEMENT_SHORTFALL_DEBIT` entry is recorded in the `SellerAdjustment` ledger for this shortfall).*
 
-Every Settlement must belong to a valid Seller.
-Settlement Period From must be earlier than Settlement Period To.
-Gross Amount cannot be negative.
-Commission Amount cannot be negative.
-Refund Amount cannot be negative.
-Adjustment Amount cannot be negative unless negative adjustments are explicitly supported by the settlement model.
-Net Settlement Amount cannot be negative unless the marketplace explicitly supports negative seller balances.
-Settlement Status must contain a valid status.
-Currency is mandatory.
-An Order Item must not be included multiple times in the same settlement.
-Only eligible Order Items can be included in a settlement.
-Commission calculations must use the commission applicable to the relevant Order.
-A completed settlement must not be modified in a way that changes its historical financial meaning.
-A seller cannot modify their own settlement records.
+## Business Rules (SRS FR-4, FR-12, BR-4, BR-7, BR-12, AC-7)
 
-# Business Rules 
+1. **Manual Weekly Execution:** Settlements are calculated and executed manually by the Super Admin on a weekly administrative cycle (no automated bank API payout engine in V1).
+2. **7-Day Settlement Holding Period:** An order item is eligible for inclusion only if $\ge 7$ full calendar days have elapsed since the seller marked the item `Delivered`.
+3. **Dispute & Return Blocking:** Any order item with an active return request, inspection dispute, or customer "Not received" dispute (`Not Received - Under Dispute`) is strictly excluded from settlement calculation.
+4. **Negative Settlement Balance Handling:** If net earnings are negative, payout is set to ₹0.00 and the shortfall is recorded in the `SellerAdjustment` ledger. Negative settlement records are never created.
+5. **Admin Direct Retail Exclusion:** Products sold directly by the Super Admin incur 0% commission and **never generate settlement records**. All retail revenues flow directly into marketplace accounts and appear in segregated sales reports.
+6. **Immutability (SRS C-5):** Once the Super Admin enters the external `bank_transaction_reference`, the settlement status becomes `Settled`, child settlement items and applied adjustment entries are locked, and the record cannot be altered or deleted.
 
-Settlements are calculated for a specific Seller and settlement period.
-Only eligible completed or otherwise settlement-eligible Order Items should contribute to a settlement.
-Marketplace commission must be deducted according to the commission applicable when the relevant Order was created.
-A newer commission configuration must not recalculate historical orders.
-Refunds and applicable return-related adjustments must be reflected in the seller's settlement.
-The seller receives the applicable net settlement amount after commission, refunds, and other valid deductions.
-An Order Item must not be settled more than once for the same settlement component.
-Settlement calculations must remain traceable to the underlying Order Items.
-Sellers cannot manually modify settlement amounts.
-The Super Admin can review and manage settlement operations according to administrative permissions.
-Settlement records must remain available for financial reconciliation and reporting.
-Completed settlements must not be deleted or modified in a way that breaks historical financial records.
-Failed settlements may be retried according to the settlement and payout workflow.
-Settlement completion must occur only after the applicable payout process has been successfully completed.
-Relationships
+## Relationships
 
 A Settlement:
-
-Belongs to one Seller.
-Contains financial information derived from multiple Order Items.
-May include deductions from Refunds.
-Uses Commission information applicable to the relevant Orders.
-May result in a Seller Payout.
-Seller
-  │
-  └─── 1 : Many ─── Settlement
-                         │
-                         ├─── Many : Many ─── Order Item
-                         │
-                         ├─── May include ─── Refund
-                         │
-                         ├─── Uses ─── Commission
-                         │
-                         └─── May result in ─── Seller Payout
+- Belongs to one **Seller Profile** (`N..1`).
+- Contains multiple **Settlement Items** derived from eligible Order Items (`1..*`).
+- May apply multiple previous **Seller Adjustment** records (`1..*`).
+- May generate a new shortfall **Seller Adjustment** record (`0..1`).
+- Is executed by one **Super Admin** (`N..1`).

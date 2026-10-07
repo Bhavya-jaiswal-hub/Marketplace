@@ -2,7 +2,7 @@
 
 **Project:** Multi-Vendor Clothing Marketplace
 
-**Version:** 1.1
+**Version:** 1.2
 
 **Status:** Approved Baseline
 
@@ -10,7 +10,7 @@
 
 **Document Owner:** Product & Engineering Team
 
-**Last Updated:** 2026-10-04
+**Last Updated:** 2026-10-07
 
 ---
 
@@ -43,7 +43,7 @@
 
 # 1. Document Information
 
-This document defines the Software Requirements Specification (SRS) for the Multi-Vendor Clothing Marketplace, Version 1.1. It specifies all functional requirements, non-functional requirements, business rules, system workflows, operational constraints, and acceptance criteria.
+This document defines the Software Requirements Specification (SRS) for the Multi-Vendor Clothing Marketplace, Version 1.2. It specifies all functional requirements, non-functional requirements, business rules, system workflows, operational constraints, and acceptance criteria.
 
 ---
 
@@ -53,6 +53,7 @@ This document defines the Software Requirements Specification (SRS) for the Mult
 |---|---|---|---|
 | 1.0 | 2026-09-22 | Bhavya Jaiswal | Initial draft covering general multi-vendor marketplace architecture. |
 | 1.1 | 2026-10-04 | Product & Engineering Team | Aligned scope strictly to Clothing & Apparel (Men, Women, Kids); added product variants (Size x Color) with per-category size configurations; standardized Manual Weekly Settlement by Super Admin; added Admin-as-Seller rules with 0% commission and moderation bounds; defined 5-day multi-stage return dispute workflow and pre-shipment cancellation rules; established Admin-configurable shipping parameters (flat fee and free shipping threshold with cart nudge); specified partial shipment shipping fee retention; added optional GSTIN for Business sellers; introduced Pre-Launch Checklist. |
+| 1.2 | 2026-10-07 | Product & Engineering Team | Added Admin-managed Size Sets (data-driven with subcategory assignment and seed defaults); defined 'Not received' dispute resolution SLA (target 3 business days, no auto-timeout, Admin dashboard flags, seller proof, dispute raised/resolved notifications); specified negative settlement handling via Seller Adjustment debit ledger (no negative settlement records, carried-forward debit netting, Admin write-off with mandatory reason, seller dashboard debit balance); moved size lists to Pre-Launch Checklist. |
 
 ---
 
@@ -62,7 +63,7 @@ The Multi-Vendor Clothing Marketplace is an e-commerce platform dedicated exclus
 
 Customers can browse clothing collections, select size and color variants, consolidate apparel from multiple sellers into a single cart, execute unified payment via the integrated payment gateway, track shipment fulfillment, cancel unfulfilled items prior to dispatch, and submit return requests within a 5-day post-delivery inspection window.
 
-The Super Admin governs the marketplace, manages seller approvals, configures category commission percentages and platform shipping parameters, resolves return disputes, and executes weekly manual bank payouts. The Super Admin may also sell clothing inventory directly on the platform with 0% commission, without category approval barriers, and with segregated financial reporting.
+The Super Admin governs the marketplace, manages seller approvals, configures category commission percentages and platform shipping parameters, resolves return and delivery disputes, manages size sets, and executes weekly manual bank payouts. The Super Admin may also sell clothing inventory directly on the platform with 0% commission, without category approval barriers, and with segregated financial reporting.
 
 ---
 
@@ -71,12 +72,14 @@ The Super Admin governs the marketplace, manages seller approvals, configures ca
 - Provide a dedicated, high-trust digital marketplace specialized exclusively for clothing and apparel.
 - Ensure seller authenticity through administrative verification of Aadhaar, PAN, address proofs, bank details, and optional GSTIN for Business sellers.
 - Enforce category authorization so sellers list products strictly within approved clothing departments.
-- Support clothing variants (Size x Color) in Version 1 with unique SKUs and independent stock tracking, utilizing category-specific size configurations.
+- Support clothing variants (Size x Color) in Version 1 with unique SKUs and independent stock tracking, utilizing Admin-managed, data-driven Size Sets assigned per subcategory.
 - Allow customers to purchase clothing variants from multiple independent sellers in a single checkout with unified payment capture.
 - Apply dynamic category-level platform commissions on seller orders while maintaining immutable financial snapshots per order item.
 - Support Admin-configurable shipping rules (flat shipping fee per seller and free shipping subtotal threshold) with cart guidance nudges.
 - Hold customer payments in the marketplace payment gateway account and execute weekly manual seller settlements for delivered, return-cleared orders.
 - Provide a structured 5-day return and inspection workflow with transparent shipping cost fault allocation.
+- Manage "Not received" delivery disputes with a target 3-business-day Admin resolution SLA and seller proof submission.
+- Ensure robust financial accounting for negative settlement balances via a dedicated Seller Adjustment debit ledger without recording negative payouts.
 - Enable direct retail operations for the Super Admin at 0% commission with full auditability and reporting segregation.
 - Deliver comprehensive operational dashboards, reporting, and automated notifications across in-app and email channels.
 
@@ -91,7 +94,7 @@ The platform encompasses three primary user roles:
 
 ### In-Scope for Version 1:
 - Clothing-only category hierarchy (Men's Clothing, Women's Clothing, Kids' Clothing, and subcategories).
-- Category-configurable size sets (e.g., S/M/L/XL for tops, waist sizes 28–36 for trousers, age brackets for kids).
+- Admin-managed, data-driven Size Sets assigned per subcategory (seed defaults: Alpha XS–3XL, Men's waist 28–42 even, Women's waist 26–38 even, Kids age brackets 0–3M to 12–13Y, Free Size).
 - Seller onboarding, verification (Individual and Business), optional GSTIN capture, and lifecycle status management.
 - Category permission requests, approvals, and revocations.
 - Product catalog management with size and color variants, per-variant SKUs, per-variant stock tracking, and product-level pricing (schema includes nullable price-override for future readiness).
@@ -102,10 +105,12 @@ The platform encompasses three primary user roles:
 - Split-order allocation with independent order item fulfillment tracking (`Placed`, `Packed`, `Shipped`, `Delivered`, `Cancelled`).
 - Customer pre-shipment cancellation with proportional shipping fee handling (shipping fee retained for remaining items in partial cancellations; refunded fully only if all items in a seller's shipment are cancelled).
 - 5-day post-delivery return window with multi-stage inspection flow: Customer Request $\to$ Admin Eligibility Approval $\to$ Return Shipment $\to$ Seller Verification $\to$ Admin Dispute Resolution (if rejected by seller) $\to$ Gateway Refund.
-- Weekly manual seller settlement calculation: Net Payable = Delivered Sales (7+ days elapsed, no open return/refund) - Platform Commission - Return/Refund Adjustments - Seller-Fault Return Shipping Deductions.
+- "Not received" dispute arbitration: customer claim within 7 days of `Delivered`, target 3-business-day resolution SLA by Admin, seller proof submission, settlement freeze, and resolution outcomes (full refund charged to seller via adjustment or dispute rejection making item settlement-eligible).
+- Weekly manual seller settlement calculation: Net Payable = Delivered Sales (7+ days elapsed, no open return/refund/dispute) - Platform Commission - Return Adjustments - Seller-Fault Return Shipping - Carried-Forward Debit Balances.
+- Negative settlement handling via Seller Adjustment debit ledger (payout set to zero, shortfall recorded as seller debit, carried forward to next settlement, with Admin write-off capability with mandatory reason).
 - Super Admin direct retail sales with 0% commission, no category approval barrier, exclusion from seller settlements, and segregated reporting.
 - Product moderation by Super Admin (takedown with mandatory reason to `Removed by Admin`, seller suspension, category revocation; no direct editing of seller product content).
-- Master notification dispatch across in-app and email channels.
+- Master notification dispatch across in-app and email channels for 11 lifecycle events.
 - Comprehensive sales, revenue, commission, settlement, inventory, and verification reporting.
 
 ---
@@ -113,13 +118,13 @@ The platform encompasses three primary user roles:
 # 6. Stakeholders
 
 ### 6.1 Super Admin (Marketplace Owner)
-The platform owner governing commercial policies, vendor verification, product moderation, dispute resolution, shipping configuration, financial settlements, and direct retail sales.
+The platform owner governing commercial policies, vendor verification, size set configuration, product moderation, dispute arbitration, shipping configuration, financial settlements, adjustment write-offs, and direct retail sales.
 
 ### 6.2 Sellers
-Approved individual merchants or commercial apparel businesses listing clothing variants, managing inventory, fulfilling orders, and inspecting customer returns.
+Approved individual merchants or commercial apparel businesses listing clothing variants, managing inventory, fulfilling orders, inspecting customer returns, providing dispute proof, and reviewing weekly settlement statements and debit balances.
 
 ### 6.3 Customers
-Registered retail consumers browsing clothing catalogs, selecting variants, purchasing across multiple sellers in a single checkout, tracking orders, and managing returns.
+Registered retail consumers browsing clothing catalogs, selecting variants, purchasing across multiple sellers in a single checkout, tracking orders, reporting non-delivery disputes, and managing returns.
 
 ### 6.4 Development & Operations Team
 Engineering and operations personnel responsible for building, testing, deploying, monitoring, and maintaining the platform.
@@ -131,26 +136,28 @@ Engineering and operations personnel responsible for building, testing, deployin
 ### 7.1 Super Admin
 - Authenticate securely with session management.
 - Review, approve, reject, suspend, or block sellers.
-- Manage clothing categories, subcategories, and category-specific size configurations.
+- Manage clothing categories, subcategories, and data-driven Size Sets (creation, updating, and subcategory assignment).
 - Approve or reject seller category requests; revoke category permissions.
 - Configure category-level commission percentages.
 - Configure platform shipping parameters (flat fee per seller and free shipping threshold).
 - Moderate seller products: take down violating items with mandatory reason (status `Removed by Admin`), suspend sellers, or revoke category access. (Admin cannot edit seller prices, descriptions, or stock).
 - Sell clothing directly without category approval barriers, with 0% commission, no settlement generation, and segregated sales reporting.
-- Validate customer return eligibility, resolve seller-customer inspection disputes, and trigger gateway refunds.
-- Execute weekly manual settlement runs, inspect eligible items (delivered 7+ days, no open disputes), record external bank/UPI reference numbers, and lock settlements as immutable.
+- Validate customer return eligibility, resolve seller-customer inspection disputes, arbitrate "Not received" disputes within target 3 business days SLA, and trigger gateway refunds.
+- Execute weekly manual settlement runs, inspect eligible items (delivered 7+ days, no open disputes), apply carried-forward debits, record external bank/UPI reference numbers, and lock settlements as immutable.
+- Review seller adjustment debit ledger, and optionally waive/write off seller debits with mandatory audit-logged reason.
 - Access platform-wide reporting, financial summaries, and audit log streams.
 
 ### 7.2 Seller
 - Register as Individual or Business with Aadhaar, PAN, address details, bank account info, and optional GSTIN.
 - Resubmit rejected verification documents upon Admin feedback.
 - Request category permissions within the clothing tree.
-- Create, edit, duplicate, pause, hide, and soft-delete clothing products and variants (size x color).
+- Create, edit, duplicate, pause, hide, and soft-delete clothing products and variants (size x color), selecting sizes strictly from the subcategory's assigned Size Set.
 - Maintain inventory counts and low-stock thresholds per variant SKU.
 - View assigned order items; update fulfillment status (`Packed`, `Shipped` with courier name and tracking ID, `Delivered`).
 - Cancel order items prior to shipping if stock is unavailable (triggers full customer refund).
 - Receive returned items, inspect physical condition, and mark `Verified` (accept) or `Rejected on Inspection` with mandatory reason.
-- Review weekly settlement statements, net payable calculations, and download historical payout reports.
+- Submit proof (tracking details, notes) for contested "Not received" customer claims.
+- Review weekly settlement statements, net payable calculations, current carried-forward debit balances, and download historical payout reports.
 - Receive system notifications via email and in-app feeds.
 
 ### 7.3 Customer
@@ -161,6 +168,7 @@ Engineering and operations personnel responsible for building, testing, deployin
 - Track order items through granular fulfillment statuses and view courier tracking numbers.
 - Cancel order items prior to the seller marking them `Shipped` for an immediate refund.
 - Submit return requests within 5 days of delivery with mandatory reason and optional photos.
+- Report "Not received" within 7 days of seller marking `Delivered` to initiate an administrative dispute.
 - Ship approved return items back to the seller and track refund status.
 - Receive transactional email and in-app notifications.
 
@@ -247,17 +255,23 @@ The system shall:
 - Allow rejected sellers to view rejection feedback and resubmit updated documents.
 - Maintain seller account statuses: `Pending Approval`, `Approved`, `Rejected`, `Suspended`, `Blocked`.
 
-## FR-3 Clothing Category Management
+## FR-3 Clothing Category & Size Set Management
 The system shall:
 - Maintain a clothing-only category hierarchy:
   - **Men's Clothing:** Shirts, T-Shirts, Trousers, Jeans, Ethnic Wear, Jackets & Outerwear.
   - **Women's Clothing:** Dresses, Tops & Tees, Sarees & Ethnic Wear, Kurtas, Skirts & Pants, Winterwear.
   - **Kids' Clothing:** Boys' Clothing, Girls' Clothing, Baby & Toddler Wear.
 - Allow Super Admin to create, update, and manage categories and subcategories.
-- Support category-specific size configurations (e.g., alpha sizes S/M/L/XL for tops, numeric waist sizes 28–36 for bottoms, age brackets for kids) instead of a fixed global enum.
+- Manage data-driven **Size Sets** (data entities, not hardcoded enums), where each subcategory is assigned exactly one size set.
+- Provide initial seed defaults for Size Sets:
+  - **Alpha:** `XS`, `S`, `M`, `L`, `XL`, `XXL`, `3XL`
+  - **Men's Waist:** `28`, `30`, `32`, `34`, `36`, `38`, `40`, `42` (even sizes)
+  - **Women's Waist:** `26`, `28`, `30`, `32`, `34`, `36`, `38` (even sizes)
+  - **Kids' Age Brackets:** `0-3M`, `3-6M`, `6-12M`, `1-2Y`, `2-3Y`, `3-4Y`, `4-5Y`, `5-6Y`, `6-7Y`, `7-8Y`, `8-9Y`, `9-10Y`, `10-11Y`, `11-12Y`, `12-13Y`
+  - **Free Size:** `Free Size` / `One Size`
 - Allow sellers to request authorization for specific categories (status: `Requested`).
 - Enable Super Admin to approve, reject, or revoke seller category permissions (`Requested` $\to$ `Approved`, `Rejected`, or `Revoked`).
-- Restrict sellers to listing products exclusively within approved categories.
+- Restrict sellers to listing products exclusively within approved categories and selecting variant sizes strictly from the subcategory's assigned Size Set.
 
 ## FR-4 Commission Management
 The system shall:
@@ -269,8 +283,8 @@ The system shall:
 ## FR-5 Product & Variant Management
 The system shall:
 - Allow sellers and Admin to create, edit, duplicate, pause, hide, and soft-delete clothing products.
-- Enforce that each product belongs to exactly one category/subcategory.
-- Support clothing **variants** defined by **Size** and **Color**.
+- Enforce that each product belongs to exactly one subcategory.
+- Support clothing **variants** defined by **Size** (selected strictly from the subcategory's assigned Size Set) and **Color**.
 - Require a globally unique SKU for each product variant.
 - Enforce product-level pricing (selling price and MRP) across all variants in Version 1. The underlying database schema shall support an optional nullable price-override column per variant for future readiness.
 - Store an immutable price and financial snapshot on every order item at the time of purchase.
@@ -310,14 +324,20 @@ The system shall:
 - Create one customer parent order upon payment confirmation and split it into seller-specific order items.
 - Store immutable financial snapshots on every order item (unit price, item subtotal, commission rate, commission amount, and shipping fee share).
 
-## FR-9 Order Fulfillment, Manual Delivery Confirmation & Pre-Shipment Cancellation
+## FR-9 Order Fulfillment, Delivery Confirmation, "Not Received" Disputes & Pre-Shipment Cancellation
 The system shall:
 - Present each seller with only their assigned order items in a dedicated fulfillment queue.
 - Allow sellers to update item fulfillment states: `Placed` $\to$ `Packed` $\to$ `Shipped` $\to$ `Delivered`.
 - Require sellers to record the **Courier Name** and **AWB Tracking Number** when marking an item `Shipped`.
 - Allow the seller to manually mark an order item as `Delivered` once physical delivery has occurred (Version 1 operates without direct courier API integration).
 - Establish that the seller's `Delivered` timestamp initiates both the **5-day customer return window** and the **7-day settlement holding countdown**.
-- Allow customers to report an order item as **"Not received"** within 7 calendar days of the seller marking it `Delivered`. This action sets the item status to `Not Received - Under Dispute`, escalates the case to Super Admin for arbitration, and immediately blocks weekly settlement calculation for that item until resolved.
+- Allow customers to report an order item as **"Not received"** within 7 calendar days of the seller marking it `Delivered`. This action sets the item status to `Not Received - Under Dispute`, escalates the case to Super Admin, and immediately blocks weekly settlement calculation for that item.
+- Provide a target SLA of **3 business days** for Super Admin resolution of "Not received" disputes (target SLA; no automated resolution on timeout).
+- Display open disputes on the Super Admin dashboard and prominently flag those exceeding the 3-business-day target SLA.
+- Allow the seller to submit proof of delivery (courier delivery notes, tracking confirmation details) to contested disputes.
+- Enforce two distinct Super Admin dispute resolution outcomes:
+  1. **Dispute Upheld (Customer Refund):** Customer is refunded in full (including item price and applicable shipping fee share) and the refunded amount is charged to the seller as a debit adjustment in the Seller Adjustment ledger.
+  2. **Dispute Rejected:** Customer claim is rejected, item status is reverted, and the item becomes eligible for weekly settlement (provided the 7-day post-delivery hold has elapsed).
 - Allow customers to cancel individual order items at any time **before** the item is marked `Shipped`.
 - Allow sellers to cancel an order item prior to shipping if stock is unavailable.
 - Enforce proportional shipping fee handling on pre-shipment cancellations:
@@ -348,20 +368,25 @@ The system shall:
   - **Customer Discretion** (size/fit mismatch, change of mind): Customer bears return shipping cost; customer receives refund of item price only (original shipping fee is retained).
 - Trigger the gateway refund upon final Admin approval of the verified return.
 
-## FR-12 Weekly Manual Settlement Management
+## FR-12 Weekly Manual Settlement & Adjustment Ledger Management
 The system shall:
 - Run a weekly settlement calculation cycle initiated manually by the Super Admin.
 - Identify all settlement items meeting eligibility criteria: marked `Delivered` $\ge 7$ days ago with no open return request, active inspection dispute, customer "Not received" dispute (`Not Received - Under Dispute`), or pending refund.
-- Aggregate eligible items per seller and calculate:
-  $$\text{Net Payable} = \text{Gross Eligible Sales} - \text{Platform Commission} - \text{Return/Refund Adjustments} - \text{Seller-Fault Return Shipping Deductions}$$
-- Present Super Admin with a detailed breakdown and net payable amount per seller.
-- Allow Super Admin to execute payouts via external banking/UPI channels and record the mandatory external **Bank Transaction Reference Number**.
+- Aggregate eligible items per seller and compile applicable debits from the **Seller Adjustment Ledger** (including previous carried-forward debits, return deductions, seller-fault return shipping, and dispute debit charges).
+- Calculate Net Payable:
+  $$\text{Net Payable} = \text{Gross Eligible Sales} + \text{Shipping Collected} - \text{Platform Commission} - \text{Return Deductions} - \text{Seller-Fault Return Shipping} - \text{Carried-Forward Debits}$$
+- Handle negative settlement results strictly via the Seller Adjustment ledger:
+  - If $\text{Net Payable} \ge 0$: Payout amount equals Net Payable; recorded previous debit adjustments are marked as applied/cleared.
+  - If $\text{Net Payable} < 0$: Payout amount is set to **₹0.00** (never generate a negative settlement record). The shortfall is recorded as a new seller debit entry in the Seller Adjustment ledger and carried forward to the subsequent weekly settlement run.
+- Display the seller's current outstanding debit balance on both the Seller Dashboard and Admin Settlement View.
+- Allow Super Admin to waive or write off an outstanding seller debit balance with a mandatory reason (audit-logged).
+- Allow Super Admin to execute positive payouts via external banking/UPI channels and record the mandatory external **Bank Transaction Reference Number**.
 - Mark settlement records as `Settled` and permanently lock them as immutable financial records.
-- Provide sellers with downloadable weekly settlement statements.
+- Provide sellers with downloadable weekly settlement statements showing gross sales, itemized deductions, carried-forward adjustments, and net payout.
 - Exclude Super Admin retail sales from the seller settlement engine (0% commission, no settlement records generated).
 
 ## FR-13 Master Notification System
-The system shall dispatch notifications across **In-App** and **Email** channels for the following 9 events:
+The system shall dispatch notifications across **In-App** and **Email** channels for the following 11 master lifecycle events:
 1. Seller registration approval or rejection.
 2. Category permission approval, rejection, or revocation.
 3. Order placed (sent to customer and each affected seller).
@@ -370,14 +395,16 @@ The system shall dispatch notifications across **In-App** and **Email** channels
 6. Order delivered (notifying customer and starting 5-day return window).
 7. Return requested, approved, or rejected.
 8. Refund completed (with gateway refund reference).
-9. Settlement completed (with external transaction reference number).
+9. Dispute raised ("Not received" claim submitted; sent to Super Admin and seller).
+10. Dispute resolved (arbitrated outcome; sent to customer and seller).
+11. Settlement completed (with external transaction reference number and itemized breakdown).
 
 ## FR-14 Reports & Analytics
 The system shall generate exportable tabular and visual reports:
 - **Sales & Revenue Reports:** Gross merchandise value (GMV), platform net commission, and average order value.
 - **Admin Direct Sales Reports:** Segregated revenue and order volumes for products sold directly by the Admin.
-- **Seller Performance Reports:** Order fulfillment velocity, pre-shipment cancellation rates, return frequencies, and customer ratings.
-- **Settlement & Payout History:** Historical ledger of all completed weekly settlement runs with bank reference numbers.
+- **Seller Performance Reports:** Order fulfillment velocity, pre-shipment cancellation rates, return frequencies, dispute counts, and customer ratings.
+- **Settlement & Adjustment Ledger Reports:** Historical ledger of all completed weekly settlement runs, bank reference numbers, carried-forward debits, and write-off audits.
 - **Variant Inventory & Low Stock Reports:** Stock levels, out-of-stock alerts, and fast-moving size/color combinations.
 - **Verification & Moderation Audit Reports:** History of seller document approvals, category revocations, and product takedowns.
 
@@ -403,7 +430,7 @@ The system shall generate exportable tabular and visual reports:
 ### NFR-4 Reliability & Data Consistency
 - Enforce ACID transactional boundaries on multi-vendor split-order placement, inventory reservation, and settlement generation.
 - Employ idempotency keys on payment capture and refund processing to eliminate duplicate charges.
-- Ensure database integrity with strict foreign key constraints, atomic state transitions, and immutable financial snapshots.
+- Ensure database integrity with strict foreign key constraints, atomic state transitions, immutable financial snapshots, and double-entry adjustment ledger tracking.
 
 ### NFR-5 Availability & Recovery
 - Maintain platform availability target of 99.5% uptime outside scheduled maintenance windows.
@@ -436,13 +463,14 @@ The system shall generate exportable tabular and visual reports:
 - Every clothing category and subcategory has an Admin-configured commission percentage.
 - Commission updates apply strictly to future orders; existing orders retain the historical commission rate captured at checkout.
 
-### BR-3 Clothing Catalog & Variant Integrity
+### BR-3 Clothing Catalog, Size Sets & Variant Integrity
 - Every product listed must belong exclusively to the **Clothing & Apparel** category tree (Men, Women, Kids).
+- Every subcategory is linked to exactly one Admin-managed **Size Set**.
+- Sellers choose variant sizes strictly from the assigned subcategory Size Set.
 - Every product must define one or more **Variants** based on **Size** and **Color**.
-- Sizes are configured per category (e.g., S/M/L/XL for tops, waist sizes 28–36 for bottoms, age brackets for kids).
 - Every variant must possess a globally unique SKU and an independent stock quantity.
 - Selling price and MRP are defined at the product level; variant-level pricing is out of scope for Version 1.
-- Each product must belong to exactly one category/subcategory.
+- Each product must belong to exactly one subcategory node.
 
 ### BR-4 Product Visibility & Archival
 Product visibility states conform strictly to:
@@ -488,16 +516,20 @@ Product visibility states conform strictly to:
 - Platform shipping rules are Admin-configurable (flat fee per seller shipment, free above a seller subtotal threshold; default seed placeholders: ₹79 flat fee, free above ₹999).
 - Sellers must input the courier name and AWB tracking ID when dispatching shipments (`Shipped`).
 
-### BR-11 5-Day Returns & Inspection Governance
+### BR-11 5-Day Returns, Inspection & Dispute Governance
 - Customers may request a return within **5 calendar days** of the seller marking the item `Delivered` (the tracking ID having been recorded at `Shipped`).
 - Customers may report an item as **"Not received"** within **7 calendar days** of the seller marking it `Delivered`. This action sets the item status to `Not Received - Under Dispute`, creates an administrative dispute for Super Admin arbitration, and immediately freezes weekly settlement for that item until resolved.
-- Flow: Customer Request (reason mandatory) $\to$ Admin Eligibility Review $\to$ Customer Return Shipment $\to$ Seller Receipt & Inspection $\to$ Seller Verification / Dispute Escalation $\to$ Gateway Refund.
+- Super Admin should resolve "Not received" disputes within a **target SLA of 3 business days** (no automatic resolution on timeout; overdue disputes are flagged on the Admin dashboard).
+- Sellers may upload proof of fulfillment/delivery (tracking records, carrier delivery slips, notes) in defense against contested disputes.
+- Dispute outcomes:
+  1. *Customer Refund Upheld:* Customer is refunded in full and the full refund amount is billed to the seller via an adjustment debit.
+  2. *Dispute Rejected:* Dispute closed; item becomes eligible for settlement once the 7-day post-delivery hold completes.
 - **Return Shipping Cost & Refund Allocation:**
   - *Seller Fault* (defective, wrong item/size sent, damaged, not as listed): Seller bears return shipping (deducted from settlement); customer refunded item price. Original shipping fee is refunded only if all items in that seller shipment were returned due to seller fault.
   - *Customer Discretion* (fit/size preference, change of mind): Customer bears return shipping; customer refunded item price only (original shipping fee is retained).
 - Refunds are calculated on the actual price paid.
 
-### BR-12 Weekly Manual Seller Settlement Governance
+### BR-12 Weekly Manual Seller Settlement & Negative Balance Governance
 - Seller earnings are held in the marketplace payment gateway account upon order delivery.
 - Settlement eligibility requires:
   1. Item status is `Delivered` (manually marked by seller).
@@ -505,12 +537,18 @@ Product visibility states conform strictly to:
   3. No open return request, inspection dispute, customer "Not received" dispute (`Not Received - Under Dispute`), or pending refund exists for the item.
 - Super Admin runs the settlement cycle manually once per week.
 - Net Payable per seller:
-  $$\text{Net Payable} = \text{Gross Delivered Sales} - \text{Platform Commission} - \text{Return Adjustments} - \text{Seller-Fault Return Shipping}$$
+  $$\text{Net Payable} = \text{Gross Delivered Sales} + \text{Shipping Collected} - \text{Platform Commission} - \text{Return Deductions} - \text{Seller-Fault Return Shipping} - \text{Carried-Forward Debits}$$
+- **Negative Balance Handling:**
+  - If Net Payable $< 0$, the payout is **₹0.00**. No negative settlement record is generated.
+  - The shortfall is recorded as an outstanding seller debit in the Seller Adjustment ledger and carried forward to the seller's next settlement run.
+  - Settled records remain immutable.
+  - Super Admin may waive/write off a seller debit balance with a mandatory audit-logged justification. Recovery from blocked/exited sellers is out of scope for V1.
+  - The seller dashboard displays the current carried-forward debit balance.
 - Admin executes payment via external banking/UPI and enters the transaction reference number into the platform.
 - Once recorded, the settlement item status becomes `Settled` and the record is immutable.
 
 ### BR-13 Standardized Notifications Master List
-The system shall deliver notifications via in-app feeds and email for the following events:
+The system shall deliver notifications via in-app feeds and email for the following 11 master events:
 1. Seller approval / rejection.
 2. Category approval / rejection / revocation.
 3. Order placed (customer and seller).
@@ -519,7 +557,9 @@ The system shall deliver notifications via in-app feeds and email for the follow
 6. Order delivered.
 7. Return requested / approved / rejected.
 8. Refund completed.
-9. Settlement completed.
+9. Dispute raised ("Not received" claim; sent to Admin and seller).
+10. Dispute resolved (arbitration outcome; sent to customer and seller).
+11. Settlement completed.
 
 ---
 
@@ -528,22 +568,23 @@ The system shall deliver notifications via in-app feeds and email for the follow
 ### 12.1 Super Admin Use Cases
 - **UC-ADM-01: Authenticate Super Admin:** Secure login with role validation.
 - **UC-ADM-02: Moderate Seller Onboarding:** Review submitted KYC proofs (PAN, Aadhaar, bank, optional GSTIN); approve, reject, suspend, or block with mandatory reason.
-- **UC-ADM-03: Manage Clothing Categories & Size Sets:** Add clothing subcategories; configure category-specific size configurations and commission percentages.
+- **UC-ADM-03: Manage Clothing Categories & Size Sets:** Add clothing subcategories; manage Size Sets (Alpha, Waist, Kids, Free Size) and assign one Size Set per subcategory; configure category commission percentages.
 - **UC-ADM-04: Authorize Seller Categories:** Review seller category requests (`Requested`); approve, reject, or revoke access.
 - **UC-ADM-05: Configure Shipping Parameters:** Set platform flat shipping fee and free shipping threshold per seller subtotal.
 - **UC-ADM-06: Moderate Product Listings:** Take down non-compliant listings with mandatory reason (`Removed by Admin`); suspend violating sellers.
-- **UC-ADM-07: Resolve Return Disputes & Not Received Claims:** Review contested seller inspection rejections and customer "Not received" disputes; arbitrate outcomes; trigger gateway refunds or release settlements.
-- **UC-ADM-08: Execute Weekly Manual Settlements:** Compile 7+ day delivered items with no open disputes; review deductions; record external bank transaction reference; lock settlement.
+- **UC-ADM-07: Resolve Return & Delivery Disputes:** Review contested seller inspection rejections and customer "Not received" claims; review seller proof; target resolution within 3 business days; arbitrate outcomes (refund customer and debit seller, or reject claim and release settlement).
+- **UC-ADM-08: Execute Weekly Manual Settlements & Debits:** Compile 7+ day delivered items with no open disputes; net previous carried-forward debits; calculate Net Payable (set payout to ₹0 if negative and carry forward debit); record external bank transaction reference; lock settlement; optionally write off unrecoverable debits with mandatory reason.
 - **UC-ADM-09: Manage Admin Direct Retail:** List, price, and fulfill Admin clothing inventory at 0% commission without self-approval.
 
 ### 12.2 Seller Use Cases
 - **UC-SEL-01: Seller Onboarding:** Register as Individual/Business; upload KYC documents, bank details, and optional GSTIN; select initial clothing categories (`Requested`).
-- **UC-SEL-02: Manage Clothing Catalog:** Create clothing products; add size and color variants using category size sets; assign unique SKUs; set product-level price; manage image galleries.
+- **UC-SEL-02: Manage Clothing Catalog:** Create clothing products; add size and color variants using the subcategory's assigned Size Set; assign unique SKUs; set product-level price; manage image galleries.
 - **UC-SEL-03: Variant Inventory Control:** Update stock quantities and low-stock thresholds per variant SKU; monitor out-of-stock states.
 - **UC-SEL-04: Fulfill Order Items:** View assigned order items; update status to `Packed`, `Shipped` (recording courier name and tracking ID), and `Delivered` (manual delivery confirmation).
 - **UC-SEL-05: Pre-Shipment Seller Cancellation:** Cancel order item if stock is unavailable; system triggers customer refund.
 - **UC-SEL-06: Inspect Returned Products:** Acknowledge receipt of return shipment; inspect condition; mark `Verified` (accept) or `Rejected on Inspection` with explanation.
-- **UC-SEL-07: Access Weekly Settlement Reports:** View itemized settlement calculations, commission deductions, return adjustments, and payout transaction references.
+- **UC-SEL-07: Manage Dispute Claims:** View customer "Not received" disputes; attach courier tracking proofs and delivery notes.
+- **UC-SEL-08: Access Weekly Settlement Reports & Debit Ledger:** View itemized settlement calculations, commission deductions, return adjustments, current carried-forward debit balances, and payout transaction references.
 
 ### 12.3 Customer Use Cases
 - **UC-CUS-01: Account Management:** Register, verify email, login, and maintain delivery addresses.
@@ -551,7 +592,7 @@ The system shall deliver notifications via in-app feeds and email for the follow
 - **UC-CUS-03: Multi-Vendor Cart & Checkout:** Select size/color variant; view free-shipping progress nudges; complete unified payment via gateway.
 - **UC-CUS-04: Track Shipments:** Monitor order item progress (`Placed` $\to$ `Packed` $\to$ `Shipped` $\to$ `Delivered`); view courier tracking numbers.
 - **UC-CUS-05: Pre-Shipment Cancellation:** Cancel order item before it is marked `Shipped`; receive refund according to partial/full cancellation shipping rules.
-- **UC-CUS-06: Initiate 5-Day Return or Dispute:** Submit return request within 5 days of seller marking `Delivered`, or report "Not received" within 7 days of `Delivered` mark to initiate Admin dispute review.
+- **UC-CUS-06: Initiate 5-Day Return or Report "Not Received":** Submit return request within 5 days of seller marking `Delivered`, or report "Not received" within 7 days of `Delivered` mark to initiate Admin dispute review.
 
 ---
 
@@ -559,24 +600,25 @@ The system shall deliver notifications via in-app feeds and email for the follow
 
 - **AS-1 Marketplace Specialization:** The marketplace specializes strictly in **Clothing & Apparel** for Men, Women, and Kids in Version 1. Footwear and accessories are deferred to V2.
 - **AS-2 Product Variants in V1:** Clothing products require size and color variants in Version 1, each with a unique SKU and stock count. Price is defined at the product level.
-- **AS-3 Dynamic Category Sizes:** Sizes are configurable per category (e.g., S/M/L/XL, numeric waist, kids age brackets) rather than a static global list.
-- **AS-4 Single Category Assignment:** Each product belongs to exactly one category/subcategory node.
+- **AS-3 Data-Driven Size Sets:** Sizes are managed via Admin-configurable Size Sets assigned per subcategory (e.g., Alpha, Men's Waist, Women's Waist, Kids Age Brackets, Free Size) rather than static hard-coded enums.
+- **AS-4 Single Category Assignment:** Each product belongs to exactly one subcategory node.
 - **AS-5 Single Payment Capture:** Customers make one payment per checkout into the marketplace payment gateway account.
 - **AS-6 Manual Weekly Settlement:** Super Admin manually reviews and executes seller payouts on a weekly cycle via external banking/UPI and records transaction references in the system.
 - **AS-7 Tax Inclusivity & TCS:** All product prices are inclusive of taxes. Platform does not calculate tax or deduct TCS in Version 1; sellers manage their own tax filings.
 - **AS-8 5-Day Return Window:** Post-delivery returns are strictly limited to 5 calendar days after the seller marks the item `Delivered`.
 - **AS-9 7-Day Settlement Holding:** Seller funds are eligible for settlement only after 7 days have elapsed since the seller marked `Delivered` without open return or "Not received" disputes.
-- **AS-10 Internet & Browser Standard:** Users access the platform via modern web browsers with standard broadband/mobile data connectivity.
+- **AS-10 Dispute Target SLA:** Super Admin aims to resolve delivery disputes within 3 business days without automated timeout resolution.
+- **AS-11 Internet & Browser Standard:** Users access the platform via modern web browsers with standard broadband/mobile data connectivity.
 
 ---
 
 # 14. Constraints
 
-- **C-1 Product Category Constraint:** The platform is restricted strictly to clothing and apparel. Footwear, jewelry, and non-apparel accessories are excluded from Version 1.
+- **C-1 Product Category Constraint:** The platform is restricted strictly to clothing and apparel. Footwear, jewelry, and non-clothing fashion accessories are excluded from Version 1.
 - **C-2 Pricing Constraint:** Pricing is configured at the product level in Version 1. Variant-level differential pricing is reserved for future scope (database schema contains nullable override column).
 - **C-3 Payment & Settlement Model:** Direct customer-to-seller payments are prohibited. All transactions flow through the marketplace gateway account and are settled manually by Super Admin.
 - **C-4 Content Ownership & Moderation Constraint:** Super Admin cannot edit seller product content (prices, descriptions, stock). Admin moderation is limited to taking down listings with mandatory reason (`Removed by Admin`), revoking category access, or suspending sellers.
-- **C-5 Immutable Financial Records:** Completed orders, commission records, processed refunds, and settled payouts cannot be altered or deleted. Every order item stores an immutable financial snapshot.
+- **C-5 Immutable Financial Records:** Completed orders, commission records, processed refunds, and settled payouts cannot be altered or deleted. Every order item stores an immutable financial snapshot. Shortfalls in settlements are tracked via separate adjustment ledger debits.
 - **C-6 Pre-Shipment Cancellation Cutoff:** Customers cannot cancel order items once the status is updated to `Shipped`.
 
 ---
@@ -590,15 +632,17 @@ The system shall deliver notifications via in-app feeds and email for the follow
 - **R-3 Payment & Webhook Latency:** Gateway confirmation delays could cause checkout inconsistencies.  
   *Mitigation:* Employ idempotent webhook handlers and verification to confirm payment capture before order creation.
 - **R-4 Return & Delivery Disputes:** Disagreements regarding returned item condition or claims of non-delivery ("Not received").  
-  *Mitigation:* Structured dispute escalation workflows where Super Admin reviews evidence and makes binding determinations before releasing settlements.
+  *Mitigation:* Structured dispute escalation workflows where Super Admin reviews seller proof, targets 3-business-day resolution SLA, and makes binding determinations before releasing settlements.
 - **R-5 Inventory Concurrency Conflicts:** Multiple customers attempting to buy the last variant unit simultaneously.  
   *Mitigation:* Atomic database inventory decrement during payment confirmation transactions.
+- **R-6 Seller Debit Recovery Risk:** Negative net balances for departing or blocked sellers.  
+  *Mitigation:* Retain 7-day post-delivery holding period before settlement release; record shortfalls in Seller Adjustment ledger; formal debt recovery is out of scope for V1.
 
 ---
 
 # 16. Success Metrics
 
-- **Business Success:** High seller onboarding throughput, accurate commission deductions, zero duplicate payouts during weekly settlement runs, and high return resolution satisfaction.
+- **Business Success:** High seller onboarding throughput, accurate commission deductions, zero duplicate payouts during weekly settlement runs, target SLA dispute closure rate, and high return resolution satisfaction.
 - **System Success:** $\le 1.5$s catalog search latency, 99.5% uptime, 0% inventory overselling errors, and 100% notification delivery reliability.
 - **User Success:** Seamless multi-vendor variant selection, transparent order tracking, frictionless pre-shipment cancellations, and clear 5-day return self-service.
 
@@ -618,6 +662,7 @@ The following features are explicitly excluded from Version 1:
 - Customer loyalty points and reward programs.
 - Digital products and downloadable goods.
 - Multi-currency and cross-border international shipping.
+- Automated debt collection/recovery mechanisms for blocked or exited sellers with negative debit balances.
 
 ---
 
@@ -646,12 +691,13 @@ The architecture supports future expansion for:
 
 ### AC-2 Category & Commission Governance
 - Sellers can request and sell only within approved clothing categories (status: `Requested` $\to$ `Approved`, `Rejected`, `Revoked`).
-- Super Admin can configure category-specific size configurations and commission percentages.
+- Super Admin can manage Size Sets (data-driven) and assign one Size Set per subcategory.
+- Super Admin can configure category commission percentages.
 - Super Admin can approve, reject, or revoke category access.
 - Category commission rates apply automatically to seller orders; Admin direct sales incur 0% commission.
 
 ### AC-3 Product & Variant Catalog
-- Sellers can create clothing products with multiple variants (Size x Color) using category size sets.
+- Sellers can create clothing products with multiple variants (Size x Color) using the subcategory's assigned Size Set.
 - Each variant has a globally unique SKU and independent inventory count.
 - Variant at 0 stock displays as `Out of Stock`; product with all variants at 0 displays as `Out of Stock`.
 - Product pricing is configured at the product level.
@@ -663,11 +709,13 @@ The architecture supports future expansion for:
 - Checkout captures single payment via gateway and creates immutable financial snapshots per order item.
 - Admin-configurable platform shipping rules are applied accurately.
 
-### AC-5 Order Processing, Delivery Confirmation & Cancellation
+### AC-5 Order Processing, Delivery Confirmation, "Not Received" Disputes & Cancellation
 - Parent order splits into seller-specific order items.
 - Sellers update items from `Placed` $\to$ `Packed` $\to$ `Shipped` (recording courier name and tracking ID) $\to$ `Delivered` (manual delivery confirmation).
 - Seller's `Delivered` timestamp initiates 5-day return window and 7-day settlement countdown.
 - Customers can report "Not received" within 7 days of `Delivered` mark (`Not Received - Under Dispute`), creating an Admin dispute and freezing settlement.
+- Admin dashboard displays open disputes with target 3-business-day SLA indicators; sellers can attach delivery proof.
+- Resolving dispute as customer refund charges the seller via the adjustment ledger; rejecting dispute releases item for settlement.
 - Customers can cancel items before `Shipped` status. In partial cancellations, shipping fee is retained for remaining items; in full cancellations, shipping fee is fully refunded.
 
 ### AC-6 5-Day Returns & Inspection
@@ -675,14 +723,16 @@ The architecture supports future expansion for:
 - Super Admin validates eligibility $\to$ Customer ships item $\to$ Seller inspects (`Verified` or `Rejected on Inspection`) $\to$ Admin resolves disputes $\to$ Gateway refund processed.
 - Return shipping cost allocated based on fault (seller bears if defective/wrong; customer bears if fit/preference).
 
-### AC-7 Weekly Manual Settlement
+### AC-7 Weekly Manual Settlement & Adjustment Accounting
 - System compiles items marked `Delivered` $\ge 7$ days ago with no open returns, refunds, or "Not received" disputes.
-- Super Admin reviews calculated Net Payable, executes external payout, records bank transaction reference, and locks settlement as immutable.
+- Super Admin reviews calculated Net Payable accounting for deductions and carried-forward debits.
+- If Net Payable $< 0$, payout is ₹0.00 and shortfall is recorded in the Seller Adjustment ledger as a debit balance carried forward.
+- Super Admin executes positive payouts, records bank transaction reference, and locks settlement as immutable.
 - Admin direct sales are excluded from seller settlements.
 
 ### AC-8 Notifications & Reporting
-- Standardized notifications delivered via in-app and email across all 9 master lifecycle events.
-- Reports generated for sales, revenue, commissions, settlements, inventory, and verifications.
+- Standardized notifications delivered via in-app and email across all 11 master lifecycle events (including dispute raised and dispute resolved).
+- Reports generated for sales, revenue, commissions, settlements, adjustment debit ledger, inventory, and verifications.
 
 ---
 
@@ -695,6 +745,7 @@ The following items are operational prerequisites to be completed by the client 
 | **PLC-1** | **Payment Holding & Gateway Setup:** Client and payment gateway account manager confirm operational terms for holding customer payments prior to manual weekly seller payouts. | Client / Finance Team | Prior to Production Go-Live |
 | **PLC-2** | **GST & TCS Obligation Sign-Off:** Client's Chartered Accountant / Tax Advisor confirms tax compliance and marketplace reporting obligations for merchant onboarding. | Client / Tax Advisor | Prior to Production Go-Live |
 | **PLC-3** | **Initial Shipping Parameter Values:** Client confirms initial production values for flat shipping fee per seller and free shipping threshold (seeded defaults: ₹79 flat fee, ₹999 free threshold). | Client / Operations Team | Prior to Production Go-Live |
+| **PLC-4** | **Category Size Set Values Confirmation:** Client reviews and confirms the initial seed values for subcategory Size Sets (Alpha XS–3XL, Men's Waist 28–42, Women's Waist 26–38, Kids Age Brackets, Free Size). | Client / Merchandising Team | Prior to Production Go-Live |
 
 ---
 
@@ -702,22 +753,25 @@ The following items are operational prerequisites to be completed by the client 
 
 | Term | Definition |
 |---|---|
-| **Super Admin** | The marketplace owner who governs platform policies, verifies sellers, resolves disputes, configures shipping rules, executes weekly settlements, and may sell direct clothing inventory. |
+| **Super Admin** | The marketplace owner who governs platform policies, verifies sellers, manages size sets, resolves disputes, configures shipping rules, executes weekly settlements, manages debit write-offs, and may sell direct clothing inventory. |
 | **Seller** | An approved Individual or Business merchant authorized to list clothing variants and fulfill customer orders. |
 | **Customer** | A registered consumer who browses, selects clothing variants, and purchases items via unified checkout. |
-| **Clothing Category** | A classification within the clothing hierarchy (Men, Women, Kids) determining seller listing authorization and applicable size configurations. |
-| **Product** | A clothing style listed under a single category with a product-level selling price and MRP. |
-| **Product Variant** | A specific Size and Color combination of a product possessing a globally unique SKU and distinct inventory count. |
+| **Clothing Category** | A classification within the clothing hierarchy (Men, Women, Kids) determining seller listing authorization. |
+| **Size Set** | An Admin-managed collection of predefined, valid clothing sizes (e.g., Alpha, Waist, Kids Age) assigned to subcategories. |
+| **Product** | A clothing style listed under a single subcategory with a product-level selling price and MRP. |
+| **Product Variant** | A specific Size (from the subcategory's Size Set) and Color combination of a product possessing a globally unique SKU and distinct inventory count. |
 | **SKU (Stock Keeping Unit)** | A globally unique identifier assigned to each individual product variant. |
 | **Commission** | The category-based percentage retained by the marketplace from seller clothing sales. |
 | **Parent Order** | The overarching customer purchase transaction comprising one or more split seller order items. |
 | **Order Item** | A single variant purchased from a specific seller, tracked through independent fulfillment states with immutable financial snapshots. |
 | **Delivery Confirmation** | The timestamp recorded when the seller manually marks an order item as `Delivered` (without direct carrier API integration in V1), initiating the 5-day return window and the 7-day settlement holding countdown. |
-| **Not Received Dispute** | A formal claim submitted by a customer within 7 calendar days of a seller marking an item `Delivered`, placing the item into `Not Received - Under Dispute` status and freezing weekly seller settlement until Super Admin arbitrates. |
+| **Not Received Dispute** | A formal claim submitted by a customer within 7 calendar days of a seller marking an item `Delivered`, placing the item into `Not Received - Under Dispute` status and freezing weekly seller settlement until Super Admin arbitrates (target 3 business days SLA). |
+| **Seller Adjustment Ledger** | A financial ledger tracking seller debits and credits (e.g., shortfall from negative settlements, dispute charges, seller-fault return shipping, or administrative write-offs) applied against weekly settlements. |
+| **Carried-Forward Debit** | An outstanding seller debit resulting from deductions exceeding gross sales in a settlement period, netted against future positive weekly payouts. |
 | **Pre-Shipment Cancellation** | The cancellation of an order item before it is marked `Shipped`, triggering an immediate refund. |
 | **Return Window** | The 5-calendar-day period after the seller marks an item `Delivered` during which a customer may request a return. |
 | **Settlement Holding Period** | The 7-calendar-day period post-`Delivered` mark required before an item becomes eligible for weekly seller payout, provided no return or "Not received" dispute is active. |
-| **Weekly Settlement** | The manual administrative payout cycle where eligible earnings minus commissions and deductions are disbursed to sellers. |
+| **Weekly Settlement** | The manual administrative payout cycle where eligible earnings minus commissions, deductions, and carried-forward debits are disbursed to sellers. |
 | **Admin Direct Retail** | Clothing products owned and sold directly by the Super Admin at 0% commission without settlement generation. |
 | **Product Moderation** | Administrative takedown of non-compliant listings with mandatory reason (`Removed by Admin`), without directly editing seller content. |
 
@@ -725,7 +779,5 @@ The following items are operational prerequisites to be completed by the client 
 
 # 22. Open Questions
 
-1. **Category Size Configuration Sets:**
-   - What is the definitive initial size chart mapping for each clothing subcategory (e.g., standard Alpha XS–3XL for shirts/tops, numeric waist 28–42 for bottoms, age groups 0–3M, 3–6M, 1–2Y, 3–4Y, etc., for kids)?
-2. **Variant-Level Differential Pricing Roadmap:**
+1. **Variant-Level Differential Pricing Roadmap:**
    - Will variant-level differential pricing (supported at the schema level via optional override) be enabled in Phase 2 or alongside the V2 expansion?

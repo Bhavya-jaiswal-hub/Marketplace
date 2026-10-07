@@ -1,115 +1,110 @@
-Return Request Entity
+# Return Request Entity
 
-# Overview
+## Overview
 
-The Return Request entity represents a request submitted by a customer to return a purchased product from an Order.
+The Return Request entity represents a formal return request submitted by a customer for an individual purchased clothing **Order Item**.
 
-A Return Request is associated with a specific Order Item and tracks the customer's return request through the return approval and processing lifecycle.
+In Version 1, return requests are governed by a strict **5-day inspection window** commencing when the seller marks the item as `Delivered`.
 
-# Purpose 
+Returns follow a multi-stage workflow involving Super Admin eligibility validation, customer return shipment, physical inspection by the seller, administrative dispute arbitration (if contested), and automated gateway refund processing.
 
-Store customer return requests.
-Associate a return request with the correct Order and Order Item.
-Store the reason for the return.
-Track the return request status.
-Support return approval and processing.
-Support refund processing after a valid return.
+## Purpose
 
-# Owned By
+- Record customer return requests submitted within 5 days of delivery.
+- Associate the return with the specific Order Item and Customer.
+- Track the full 8-stage return lifecycle from request through physical inspection to refund.
+- Classify fault allocation (**Seller Fault** vs. **Customer Discretion**) to determine who bears the return shipping cost.
+- Support Super Admin arbitration on disputed inspection rejections.
+- Trigger gateway refunds and automated variant restocking upon approved return verification.
+
+## Owned By
 
 Return & Refund Management
 
-# Used By 
+## Used By
 
-Customer Management
-Order Management
-Order Item Management
-Return & Refund Management
-Inventory Management
-Payment Management
-Seller Management
-Settlement Management
-Admin Dashboard
+- Customer Management (Return Self-Service)
+- Order Management (Order Item Status Tracking)
+- Inventory Management (Restocking Verified Returns)
+- Payment Management (Gateway Refund Initiation)
+- Seller Management (Physical Inspection Queue)
+- Settlement Management (Deducting Seller-Fault Return Shipping)
+- Admin Dashboard (Return Dispute Arbitration)
 
-# Attributes
+## Attributes
 
-Attribute	Description
-Return Request ID	Unique identifier for the return request
-Order ID	Order associated with the return
-Order Item ID	Order Item being returned
-Customer ID	Customer who requested the return
-Return Reason	Reason provided by the customer
-Return Quantity	Number of units requested for return
-Customer Comments	Additional information provided by the customer
-Status	Current status of the return request
-Requested At	Timestamp when the return was requested
-Reviewed At	Timestamp when the return request was reviewed
-Created At	Record creation timestamp
-Updated At	Last modification timestamp
-Return Request Status
+| Attribute | Type | Description |
+|---|---|---|
+| Return Request ID | UUID | Unique identifier for the return request |
+| Order ID | UUID | Parent order reference (Foreign Key to `Order`) |
+| Order Item ID | UUID | Order item being returned (Foreign Key to `OrderItem`) |
+| Customer ID | UUID | Customer who initiated the return (Foreign Key to `User`) |
+| Seller ID | UUID | Seller who fulfilled the item |
+| Status | Enum | Return lifecycle status (see Section 8.3) |
+| Reason | String | Mandatory return reason (e.g., Defective, Wrong Item, Size Misfit, Remorse) |
+| Customer Comments | Text (Nullable) | Additional explanation provided by the customer |
+| Proof Photos | Array of URLs | Optional photos uploaded by customer demonstrating condition/defect |
+| Fault Classification | Enum | Fault allocation: `SELLER_FAULT` or `CUSTOMER_FAULT` |
+| Return Courier Name | String (Nullable) | Courier used by customer to ship item back (`In Transit`) |
+| Return Tracking Number | String (Nullable) | Return tracking ID provided by customer |
+| Inspection Outcome | Enum (Nullable) | Seller physical inspection result: `VERIFIED` or `REJECTED_ON_INSPECTION` |
+| Inspection Rejection Reason | Text (Nullable) | Mandatory reason if seller rejects return on physical inspection |
+| Return Shipping Deduction | Numeric | Return shipping cost deducted from seller settlement if `SELLER_FAULT` |
+| Admin Dispute Notes | Text (Nullable) | Binding determination notes logged by Super Admin during arbitration |
+| Requested At | Timestamp | Timestamp when customer submitted return request |
+| Approved At | Timestamp (Nullable) | Timestamp when Super Admin approved return eligibility |
+| Received At | Timestamp (Nullable) | Timestamp when seller acknowledged package receipt |
+| Inspected At | Timestamp (Nullable) | Timestamp when seller completed physical inspection |
+| Refunded At | Timestamp (Nullable) | Timestamp when payment gateway refund was executed |
+| Created At | Timestamp | Record creation timestamp |
+| Updated At | Timestamp | Last modification timestamp |
 
-Possible statuses include:
+## Return Statuses (SRS Section 8.3)
 
-Pending
-Approved
-Rejected
-Pickup Scheduled
-Received
-Completed
-Cancelled
+The Return Request entity strictly conforms to the 8 statuses defined in **SRS Section 8.3**:
 
-The exact status transitions depend on the final return and shipping workflow.
+- **`Requested`:** Customer submitted return request within the 5-day delivery window; awaiting Admin review.
+- **`Approved`:** Admin approved return eligibility; customer authorized to ship product to seller.
+- **`Rejected`:** Admin rejected return request (e.g., out of window or non-compliant reason); process closed.
+- **`In Transit`:** Customer provided return courier tracking details; package in transit to seller.
+- **`Received`:** Seller confirmed physical receipt of return package at facility.
+- **`Verified`:** Seller inspected item, confirmed acceptable condition, and accepted return.
+- **`Rejected on Inspection`:** Seller inspected item and rejected return due to damage, wear, or missing tags (dispute escalated to Admin).
+- **`Refunded`:** Admin approved refund following verification or dispute resolution; gateway refund triggered.
 
-# Validation Rules
+## Fault Allocation & Return Shipping Cost Rules (SRS FR-11, BR-11, AC-6)
 
-Every Return Request must belong to a valid Order.
-Every Return Request must reference a valid Order Item.
-Every Return Request must belong to the Customer who placed the Order.
-Return Quantity must be greater than zero.
-Return Quantity must not exceed the quantity eligible for return.
-Return Reason is mandatory.
-Return Request Status must contain a valid status.
-A customer can request a return only for their own Order Items.
-A customer cannot request a return for an Order Item that is not eligible for return.
-A completed, cancelled, or already fully returned Order Item must not accept another return request.
-Return requests must follow the configured return window and eligibility rules.
-A return request cannot be approved without satisfying the applicable marketplace return conditions.
+1. **Seller Fault** *(Defective product, wrong size/item sent, damaged, not as listed)*:
+   - **Return Shipping Cost:** Borne by the **Seller** (deducted from seller's weekly settlement payout via `Return Shipping Deduction`).
+   - **Customer Refund:** Full refund of item price. Original shipping fee is refunded only if **all** items in that seller's shipment were returned due to seller fault.
+2. **Customer Discretion** *(Size/fit preference, buyer remorse, change of mind)*:
+   - **Return Shipping Cost:** Borne by the **Customer**.
+   - **Customer Refund:** Refund of item price only (original shipping fee is retained by marketplace).
+3. **Tax-Inclusive Refund Calculation:** Refunds are based on the actual price paid (tax-inclusive). No separate proportional tax calculation or TCS deduction occurs in Version 1.
 
-# Business Rules
+## Validation Rules
 
-A customer can create a Return Request for an eligible Order Item.
-A customer cannot create a return request for another customer's Order Item.
-Return eligibility depends on the marketplace's return policy.
-The return request must specify a valid return reason.
-A customer may return only the eligible quantity of an Order Item.
-A return request must be reviewed before the return is processed when approval is required.
-An approved return may proceed to pickup or return shipment.
-A rejected return request must not proceed to refund processing.
-A completed return may trigger the applicable refund process.
-Returned inventory may be added back to available inventory only when the returned product is accepted according to inventory rules.
-A return request must remain associated with the original Order and Order Item.
-Return information must not modify the historical price of the original Order Item.
-Customers can view and manage only their own return requests.
-Sellers can view return requests related to their own products according to marketplace permissions.
-The Super Admin can review and manage return requests according to administrative permissions.
-Return Request records must not be deleted in a way that breaks order, refund, inventory, or settlement history.
-Relationships
+1. Return request must be created within **5 calendar days** of the seller marking the Order Item `Delivered`.
+2. Return requests are permitted only for items in `Delivered` status with no existing open return or dispute.
+3. `Reason` and `Fault Classification` are mandatory.
+4. When moving to `In Transit`, `Return Courier Name` and `Return Tracking Number` are mandatory.
+5. When moving to `Rejected on Inspection`, `Inspection Rejection Reason` is mandatory.
+6. A return request cannot be marked `Refunded` without prior `Verified` inspection or Super Admin dispute resolution.
+
+## Relationships
 
 A Return Request:
+- References one **Order** and one **Order Item**.
+- Belongs to one **Customer**.
+- Belongs to one **Seller**.
+- Results in one **Refund** record upon final approval.
+- Restocks the variant's **Inventory** record upon `Verified` inspection.
 
-Belongs to one Order.
-References one Order Item.
-Belongs to one Customer.
-May result in one or more Refund records.
-May result in an Inventory update after the returned product is accepted.
-Order
+```
+Order Item
   │
-  └─── 1 : Many ─── Return Request
-                         │
-                         ├─── Many : 1 ─── Order Item
-                         │
-                         ├─── Many : 1 ─── Customer
-                         │
-                         ├─── 1 : Many ─── Refund
-                         │
-                         └─── May Update ─── Inventory
+  └─── 1 : 1 ─── Return Request
+                       │
+                       ├─── 1 : 1 ─── Refund
+                       └─── Restocks ─── Product Variant Inventory
+```
