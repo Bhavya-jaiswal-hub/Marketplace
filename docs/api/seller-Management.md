@@ -134,49 +134,79 @@ A user must not create a seller profile for another user.
 
 Request Body
 
-Example:
+Example (Individual Seller):
 
+```json
 {
-  "businessName": "ABC Electronics",
-  "businessDescription": "Electronics and accessories marketplace seller"
+  "sellerType": "INDIVIDUAL",
+  "displayName": "Artisan Apparel Studio",
+  "contactEmail": "artisan@example.com",
+  "contactMobile": "+919876543210"
 }
+```
 
-The exact fields must remain synchronized with the Seller Profile entity.
+Example (Business Seller with optional GSTIN):
+
+```json
+{
+  "sellerType": "BUSINESS",
+  "businessName": "Heritage Textiles Pvt Ltd",
+  "displayName": "Heritage Textiles",
+  "gstin": "27AAAAA0000A1Z5",
+  "contactEmail": "contact@heritagetextiles.com",
+  "contactMobile": "+919876543211"
+}
+```
+
+The exact fields must remain synchronized with the Seller Profile entity (`docs/Entities/06-Seller-Profile.md`).
 
 Validation Rules
-User must be authenticated.
-User must exist.
-User must be eligible for seller onboarding.
-A user must not have multiple active seller profiles where the business rules prohibit it.
-Mandatory seller profile fields must be provided.
-Business information must satisfy configured validation rules.
-Request must contain only supported fields.
+- User must be authenticated.
+- User must exist.
+- User must be eligible for seller onboarding.
+- A user must not have multiple active seller profiles.
+- `sellerType` is mandatory (`INDIVIDUAL` or `BUSINESS`).
+- `displayName`, `contactEmail`, and `contactMobile` are mandatory.
+- `businessName` is mandatory if `sellerType` is `BUSINESS`.
+- `gstin` is optional for `BUSINESS` sellers; if provided, must match Indian 15-character GSTIN format.
+- Mandatory seller profile fields must be provided.
+- Request must contain only supported fields.
+
 Business Rules
-Seller onboarding begins with an authenticated marketplace user.
-Seller creation does not automatically mean seller approval.
-Seller must complete required onboarding information before verification.
-Seller must provide required address and verification information.
-Seller cannot perform restricted seller operations before approval.
-Seller verification is controlled by the Super Admin.
-A user cannot create a seller profile for another user.
+- Seller onboarding begins with an authenticated marketplace user.
+- Seller creation does not automatically mean seller approval. Initial status is `Pending Approval`.
+- Seller must complete required onboarding information before verification.
+- Seller must provide required address and verification KYC documents.
+- Seller cannot perform restricted seller operations before Super Admin approval.
+- Seller verification is controlled by the Super Admin.
+- A user cannot create a seller profile for another user.
+
 Success Response
 Status
 201 Created
 
 Example:
 
+```json
 {
   "success": true,
   "data": {
     "seller": {
-      "id": "seller-id",
-      "userId": "user-id",
-      "businessName": "ABC Electronics",
-      "status": "Pending"
+      "id": "c1f7a012-789a-4bc3-90de-f123456789ab",
+      "userId": "u1e8b023-890b-4cd4-01ef-0123456789cd",
+      "sellerType": "BUSINESS",
+      "businessName": "Heritage Textiles Pvt Ltd",
+      "displayName": "Heritage Textiles",
+      "gstin": "27AAAAA0000A1Z5",
+      "status": "Pending Approval",
+      "contactEmail": "contact@heritagetextiles.com",
+      "contactMobile": "+919876543211",
+      "createdAt": "2026-10-07T10:00:00.000Z"
     }
   },
   "message": "Seller onboarding created successfully"
 }
+```
 Error Responses
 401 Unauthorized
 Authentication required.

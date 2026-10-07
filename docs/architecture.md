@@ -3,15 +3,16 @@
 ## Document Information
 
 | Field | Value |
-|--------|--------|
+|---|---|
 | Document Name | Software Architecture |
-| Product | Multi-Vendor Marketplace |
-| Version | 1.0 |
-| Status | Draft |
+| Product | Multi-Vendor Clothing Marketplace |
+| Version | 1.2 |
+| Status | Approved Baseline Specification |
 | Prepared By | Bhavya Jaiswal |
-| Reviewed By | - |
+| Reviewed By | Product & Engineering Team |
 | Approved By | Super Admin (Client) |
-| Last Updated | DD-MM-YYYY |
+| Source of Truth | docs/SRS.md (v1.2) |
+| Last Updated | 2026-10-07 |
 
 ---
 
@@ -457,11 +458,14 @@ Responsibilities include:
 
 - Verify sellers
 - Approve or reject seller categories
+- Manage clothing categories and data-driven Size Sets
 - Configure category commissions
-- Manage own products
-- Process settlements
+- Manage Admin direct retail products (listed without category approval, 0% platform commission, no settlement generation, segregated sales reporting)
+- Moderate seller products (administrative takedowns with mandatory reason, seller suspensions, category revocations; no direct content editing)
+- Arbitrate customer "Not received" disputes and contested return inspections
+- Execute weekly manual seller settlements and manage debit adjustments / write-offs
 - Approve refunds
-- Monitor marketplace performance
+- Monitor marketplace performance and audit logs
 - View reports
 - Manage overall marketplace operations
 
@@ -2378,7 +2382,8 @@ The architecture supports the future addition of the following business capabili
 - Featured Products
 - Customer-Seller Chat
 - Bulk Product Upload (CSV/Excel)
-- Product Variants (Size, Color, etc.)
+- Variant-Level Differential Pricing (Differential pricing per size/color)
+- Footwear, Jewelry & Fashion Accessories (Version 2 Expansion)
 - Advanced Search & Filtering
 - Recommendation System
 - Loyalty & Reward Programs

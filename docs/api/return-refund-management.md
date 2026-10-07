@@ -5,63 +5,139 @@
 | Field | Value |
 |---|---|
 | Document Name | Return and Refund Management API |
-| Product | Multi-Vendor Marketplace |
+| Product | Multi-Vendor Clothing Marketplace |
 | API Version | v1 |
-| Status | Draft |
+| Status | Approved Baseline Specification |
 | Parent Document | API Design |
-| Related Documents | Order Management API, Payment Management API, Settlement Management API |
+| Source of Truth | [docs/SRS.md](file:///c:/Users/acer/OneDrive/Documents/MarketPlace/docs/SRS.md) (v1.2) |
+| Last Updated | 2026-10-07 |
 
-## 1. Overview
+---
 
-This module owns return requests, administrative review, refund creation, provider processing, and refund history. Return and refund decisions must preserve original order and payment snapshots.
+# 1. Overview
 
-## 2. Endpoints
+This module manages the 5-day post-delivery return lifecycle, seller physical inspection (`Verified` vs. `Rejected on Inspection`), Super Admin dispute arbitration, fault-based return shipping allocation, and gateway refund execution.
+
+# 2. Endpoints Summary
 
 | Method | Endpoint | Actor | Purpose |
 |---|---|---|---|
-| POST | `/api/v1/orders/:orderId/items/:orderItemId/returns` | Customer | Request a return |
-| GET | `/api/v1/returns` | Customer | List own return requests |
-| GET | `/api/v1/returns/:returnRequestId` | Customer/Admin | View a return request |
-| GET | `/api/v1/sellers/me/returns` | Seller | View returns for own products |
-| GET | `/api/v1/admin/returns` | Super Admin | Review return requests |
-| POST | `/api/v1/admin/returns/:returnRequestId/approve` | Super Admin | Approve a return |
-| POST | `/api/v1/admin/returns/:returnRequestId/reject` | Super Admin | Reject a return |
-| POST | `/api/v1/admin/returns/:returnRequestId/complete` | Super Admin | Confirm returned item |
-| GET | `/api/v1/admin/refunds` | Super Admin | Review refunds |
-| POST | `/api/v1/admin/refunds/:refundId/process` | Super Admin | Process a refund |
-| GET | `/api/v1/refunds` | Customer | List own refunds |
-| GET | `/api/v1/refunds/:refundId` | Customer/Admin | View a refund |
+| `POST` | `/api/v1/orders/items/:orderItemId/returns` | Customer | Submit return request within 5 days of delivery |
+| `GET` | `/api/v1/returns` | Customer | List own return requests |
+| `GET` | `/api/v1/returns/:returnRequestId` | Customer / Admin / Seller | View return details and inspection status |
+| `POST` | `/api/v1/returns/:returnRequestId/ship` | Customer | Provide return courier name and tracking number (`In Transit`) |
+| `GET` | `/api/v1/sellers/me/returns` | Seller | View return requests assigned to own products |
+| `POST` | `/api/v1/sellers/me/returns/:returnRequestId/received` | Seller | Acknowledge physical package receipt at facility (`Received`) |
+| `POST` | `/api/v1/sellers/me/returns/:returnRequestId/verify` | Seller | Verify condition and accept return (`Verified`) |
+| `POST` | `/api/v1/sellers/me/returns/:returnRequestId/reject-inspection` | Seller | Reject return condition (`Rejected on Inspection` with reason) |
+| `GET` | `/api/v1/admin/returns` | Super Admin | Review return requests and inspection disputes |
+| `POST` | `/api/v1/admin/returns/:returnRequestId/approve-eligibility` | Super Admin | Validate return window and approve request (`Approved`) |
+| `POST` | `/api/v1/admin/returns/:returnRequestId/reject-eligibility` | Super Admin | Reject invalid return request (`Rejected`) |
+| `POST` | `/api/v1/admin/returns/:returnRequestId/resolve-dispute` | Super Admin | Arbitrate inspection dispute (approve refund or deny return) |
+| `POST` | `/api/v1/admin/returns/:returnRequestId/process-refund` | Super Admin | Trigger programmatic gateway refund following verification |
 
-## 3. Return Request
+---
 
-A return request must identify the customer's Order Item, quantity, reason, and any required comments. The customer may request returns only for their own eligible items, within the configured return window and policy.
+# 3. Customer Return Workflow
 
-Return quantity cannot exceed the eligible quantity. A completed, cancelled, or fully returned item cannot accept another return request.
+### 3.1 Request Return
+`POST /api/v1/orders/items/:orderItemId/returns`
 
-## 4. Approval and Completion
+**Request Body:**
+```json
+{
+  "reason": "Defective stitching along sleeve seam",
+  "reasonCategory": "DEFECTIVE_PRODUCT",
+  "notes": "Stitching unraveled upon opening package.",
+  "photoUrls": ["https://storage.marketplace.com/returns/stitch-defect-1.jpg"]
+}
+```
 
-Super Admin approval is required where the marketplace policy requires it. Approval does not itself complete the return or refund. The returned product must be received and verified before a return-linked refund is processed. Accepted returns may update Inventory through Inventory Management.
+**Business Rules:**
+- Request must be submitted within **5 calendar days** of the seller's `Delivered` timestamp.
+- Sets status to `Requested`.
 
-## 5. Refund Rules
+---
 
-- A refund must reference a successful original Payment Transaction.
-- Refund amount must not exceed the remaining refundable amount.
-- Refund reason and currency are required.
-- Provider confirmation is required before status becomes Succeeded.
-- Full and partial refunds are supported. For an eligible cancellation or return, refund the actual discounted amount paid for the affected item and refund applicable tax proportionally. Do not refund the discount separately. Shipping charges are partially refunded according to the configured policy, and the corresponding seller commission is reversed or adjusted.
-- The normal return window is five days after delivery. Cancellation and post-delivery return refunds follow separate rules and timing.
-- All products are returnable/refundable in Version 1. Super Admin approval and physical return verification are required for post-delivery returns. Inventory is restocked only after inspection and acceptance.
-- Duplicate requests and retries must not produce duplicate financial refunds.
-- Refunds must update order/payment state and be reflected in settlement calculations.
+### 3.2 Customer Submit Return Shipment Details
+`POST /api/v1/returns/:returnRequestId/ship`
 
-## 6. Errors
+**Request Body:**
+```json
+{
+  "courierName": "Delhivery",
+  "trackingNumber": "DLV-9876543210"
+}
+```
 
-`RETURN_NOT_FOUND`, `RETURN_NOT_ELIGIBLE`, `RETURN_QUANTITY_INVALID`, `RETURN_STATE_INVALID`, `REFUND_NOT_FOUND`, `REFUND_NOT_ALLOWED`, `REFUND_AMOUNT_EXCEEDED`, `PAYMENT_NOT_REFUNDABLE`, `REFUND_ALREADY_PROCESSED`, and `VALIDATION_ERROR`.
+Sets status to `In Transit`.
 
-## 7. Idempotency and Audit
+---
 
-Approval, rejection, completion, and refund processing must be idempotent. Return approvals, rejections, refund decisions, and provider results must create audit records.
+# 4. Seller Inspection Endpoints
 
-## 8. Related Entities
+### 4.1 Confirm Package Receipt
+`POST /api/v1/sellers/me/returns/:returnRequestId/received`
 
-Order, Order Item, Customer Profile, Return Request, Refund, Payment Transaction, Inventory, Settlement Item, Notification, Audit Log, Activity Log.
+Sets status to `Received`.
+
+---
+
+### 4.2 Verify and Accept Return
+`POST /api/v1/sellers/me/returns/:returnRequestId/verify`
+
+**Business Rules:**
+- Seller confirms item is in acceptable condition (tags intact, unworn, undamaged).
+- Sets status to `Verified`.
+- Restocks variant inventory count.
+- Notifies Super Admin to trigger gateway refund.
+
+---
+
+### 4.3 Reject Return on Inspection
+`POST /api/v1/sellers/me/returns/:returnRequestId/reject-inspection`
+
+**Request Body:**
+```json
+{
+  "reason": "Garment shows clear signs of wash and perfume odor; brand tags removed.",
+  "photoUrls": ["https://storage.marketplace.com/returns/worn-evidence.jpg"]
+}
+```
+
+**Business Rules:**
+- Sets status to `Rejected on Inspection`.
+- Escalates dispute to Super Admin for arbitration.
+
+---
+
+# 5. Admin Dispute Resolution & Fault-Based Refund
+
+### 5.1 Arbitrate Return Dispute
+`POST /api/v1/admin/returns/:returnRequestId/resolve-dispute`
+
+**Request Body:**
+```json
+{
+  "resolution": "OVERRULE_SELLER_APPROVE_REFUND",
+  "faultClassification": "SELLER_FAULT",
+  "returnShippingDeduction": 79.00,
+  "adminNotes": "Inspection photos verify product was defective prior to dispatch."
+}
+```
+
+---
+
+### 5.2 Fault Allocation & Refund Rules (SRS FR-11, BR-11)
+
+1. **Seller Fault** (`SELLER_FAULT`):
+   - Defective, damaged, wrong item, or wrong size sent by seller.
+   - Seller bears return shipping cost (deducted from weekly seller settlement).
+   - Customer receives 100% refund of actual price paid. (Original shipping is refunded only if all items in seller shipment were returned due to seller fault).
+2. **Customer Discretion** (`CUSTOMER_FAULT`):
+   - Fit preference, change of mind.
+   - Customer bears return shipping cost.
+   - Customer receives refund of item price only (original shipping fee retained).
+3. **Gateway Execution:**
+   - Programmatic refund dispatched via payment gateway API with idempotency token.
+   - Sets status to `Refunded`.

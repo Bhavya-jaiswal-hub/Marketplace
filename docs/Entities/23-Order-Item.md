@@ -4,6 +4,8 @@
 
 The Order Item entity represents a single clothing **Product Variant** purchased from a specific seller within a customer's parent Order.
 
+In Version 1, **`variant_id` is the required purchasable reference**. The `product_id` attribute is strictly a denormalized parent reference and is never used as the purchasable entity.
+
 The platform internally splits each parent order into discrete Order Items. Each item is fulfilled, tracked, cancelled, returned, and settled independently.
 
 Every Order Item stores an **immutable financial snapshot** (product title, SKU, size, color, unit price, commission rate, commission amount, and shipping fee share) captured at the moment of payment confirmation.
@@ -37,8 +39,8 @@ Order Management
 |---|---|---|---|
 | `id` | UUID | No | Unique identifier for the order item |
 | `order_id` | UUID | No | Parent order reference (Foreign Key to `Order`) |
-| `product_id` | UUID | No | Parent clothing product (Foreign Key to `Product`) |
-| `variant_id` | UUID | No | Purchased variant (Foreign Key to `ProductVariant`) |
+| `variant_id` | UUID | No | **Mandatory purchasable entity** (Foreign Key to `ProductVariant`) |
+| `product_id` | UUID | No | Denormalized parent clothing product reference (Foreign Key to `Product`) |
 | `seller_id` | UUID | No | Seller responsible for fulfillment (Foreign Key to `SellerProfile` or Super Admin) |
 | `status` | Enum | No | Order item status (see Section 8.1) |
 | `courier_name` | String(100) | Yes | Logistics courier recorded by seller upon dispatch |

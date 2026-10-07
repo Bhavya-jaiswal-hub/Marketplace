@@ -18,20 +18,22 @@ Reporting and Audit provides authorized operational reports and immutable record
 
 | Method | Endpoint | Actor | Purpose |
 |---|---|---|---|
-| GET | `/api/v1/admin/reports/sales` | Super Admin | Sales report |
-| GET | `/api/v1/admin/reports/revenue` | Super Admin | Revenue report |
-| GET | `/api/v1/admin/reports/commission` | Super Admin | Commission report |
-| GET | `/api/v1/admin/reports/settlements` | Super Admin | Settlement report |
-| GET | `/api/v1/admin/reports/sellers` | Super Admin | Seller report |
-| GET | `/api/v1/admin/reports/products` | Super Admin | Product report |
-| GET | `/api/v1/admin/reports/inventory` | Super Admin | Inventory/low-stock report |
-| GET | `/api/v1/admin/reports/verifications` | Super Admin | Pending verification report |
-| GET | `/api/v1/admin/audit-logs` | Super Admin | Search audit records |
+| GET | `/api/v1/admin/reports/sales` | Super Admin | Marketplace GMV & sales report |
+| GET | `/api/v1/admin/reports/admin-sales` | Super Admin | Admin direct retail sales report (segregated from marketplace) |
+| GET | `/api/v1/admin/reports/revenue` | Super Admin | Platform net revenue report |
+| GET | `/api/v1/admin/reports/commission` | Super Admin | Category commission earnings report |
+| GET | `/api/v1/admin/reports/settlements` | Super Admin | Settlement & adjustment debit ledger report |
+| GET | `/api/v1/admin/reports/sellers` | Super Admin | Seller performance report |
+| GET | `/api/v1/admin/reports/products` | Super Admin | Product catalog report |
+| GET | `/api/v1/admin/reports/inventory` | Super Admin | Variant inventory & low-stock report |
+| GET | `/api/v1/admin/reports/verifications` | Super Admin | Pending verification & moderation audit report |
+| GET | `/api/v1/admin/audit-logs` | Super Admin | Search immutable audit log records |
 | GET | `/api/v1/admin/activity-logs` | Super Admin | Search activity records |
-| GET | `/api/v1/reports/:reportId` | Authorized actor | View generated report metadata |
+| GET | `/api/v1/reports/:reportId` | Authorized actor | View generated report metadata & download link |
 
 ## 3. Rules
 
+- **Admin Sales Segregation (SRS FR-14, BR-6):** Products sold directly by the Super Admin operate with 0% platform commission and are excluded from seller settlements. Admin retail revenue, order volumes, and fulfillment stats are tracked and reported separately via `/api/v1/admin/reports/admin-sales`.
 - Administrative reports require Super Admin authorization unless a future seller-scoped report is explicitly approved.
 - Every report must support bounded pagination or controlled export limits.
 - Date ranges, filters, and sort fields must be validated and allowlisted.

@@ -111,22 +111,25 @@ The response must not expose provider secrets or raw credentials.
 
 `POST /api/v1/payments/:paymentReference/confirm` is an internal/provider-facing operation. It may change payment state only after the provider result has been independently authenticated and validated.
 
-### Razorpay Webhook
+### Razorpay Webhook Execution Flow (SRS FR-8, FR-10, NFR-4)
 
-`POST /api/v1/payments/webhooks/razorpay` is the authoritative payment confirmation path. The service must:
+`POST /api/v1/payments/webhooks/razorpay` is the authoritative payment confirmation and order creation trigger. The service executes the following operations in strict sequential order:
 
-1. Verify the Razorpay webhook signature using server-side configuration.
-2. Validate the internal payment reference and provider order/payment references.
-3. Compare amount, currency, customer checkout, and expected payment state.
-4. Store the provider event/reference with a uniqueness constraint.
-5. Finalize exactly one Payment Transaction for a successful payment.
-6. Confirm reserved inventory and create exactly one customer-facing Order after authoritative success.
-7. Release reservations when the payment fails or expires.
-8. Queue notifications and reconciliation work without rolling back the payment transaction.
-
-Payment status may become successful only after the provider response or webhook is authenticated/cryptographically verified and reconciled with the internal payment reference, provider transaction ID, amount, currency, and order.
-
-A client-side success message is never authoritative. Duplicate callbacks must not create duplicate successful transactions or orders.
+1. **Verify Signature:** Cryptographically verify the Razorpay webhook signature header using the server-side webhook secret. Reject any invalid signature immediately (`400 Bad Request`).
+2. **Idempotency Check:** Check the provider event ID against processed events. If the event was already processed, ignore and return `200 OK` immediately without repeating side effects.
+3. **Mark Payment Paid:** Transition the internal `Payment` status from `Pending` $\to$ `Paid` and persist the payment gateway transaction ID.
+4. **Create Parent Order & Split Items:** In an atomic database transaction, create the parent `Order` (`Placed`) and split it into discrete seller `OrderItem` records (`Placed`).
+5. **Atomic Stock Decrement:** Decrement variant inventory (`ProductVariant.stock_quantity`) atomically in the same database transaction for each purchased `variant_id`.
+6. **Write Immutable Snapshots:** Populate immutable financial and attribute snapshots on every `OrderItem`:
+   - `product_name_snapshot`
+   - `sku_snapshot`
+   - `size_snapshot`
+   - `color_snapshot`
+   - `unit_price` (tax-inclusive price at checkout)
+   - `commission_rate` (category percentage locked at purchase)
+   - `commission_amount` ($\text{item\_subtotal} \times \text{commission\_rate}$)
+   - `shipping_fee_share` (allocated share of seller flat shipping fee)
+7. **Send Notifications:** Asynchronously queue and dispatch "Order placed" notifications across In-App and Email channels to the customer and each affected seller.
 
 ## 6. Payment Rules
 

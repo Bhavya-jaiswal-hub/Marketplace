@@ -430,7 +430,7 @@ The system shall generate exportable tabular and visual reports:
 ### NFR-4 Reliability & Data Consistency
 - Enforce ACID transactional boundaries on multi-vendor split-order placement, inventory reservation, and settlement generation.
 - Employ idempotency keys on payment capture and refund processing to eliminate duplicate charges.
-- Ensure database integrity with strict foreign key constraints, atomic state transitions, immutable financial snapshots, and double-entry adjustment ledger tracking.
+- Ensure database integrity with strict foreign key constraints, atomic state transitions, immutable financial snapshots, and ledger with signed amounts adjustment tracking.
 
 ### NFR-5 Availability & Recovery
 - Maintain platform availability target of 99.5% uptime outside scheduled maintenance windows.
@@ -779,5 +779,5 @@ The following items are operational prerequisites to be completed by the client 
 
 # 22. Open Questions
 
-1. **Variant-Level Differential Pricing Roadmap:**
-   - Will variant-level differential pricing (supported at the schema level via optional override) be enabled in Phase 2 or alongside the V2 expansion?
+*None. All architectural, scope, workflow, and business decisions are fully resolved and baselined for Version 1.*
+

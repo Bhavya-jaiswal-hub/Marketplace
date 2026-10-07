@@ -27,9 +27,21 @@ Notification Management creates and delivers user notifications for important ma
 | PATCH | `/api/v1/admin/notification-templates/:templateId` | Super Admin | Update template |
 | POST | `/api/v1/admin/notifications/:notificationId/retry` | Super Admin | Retry failed delivery |
 
-## 3. Required Events
+## 3. Master Notification Events (SRS FR-13, BR-13, AC-8)
 
-The system should support notifications for seller approval/rejection, category approval/rejection, order placement/cancellation, return approval, refund completion, and settlement completion. Product and low-stock notifications may be added according to finalized workflows.
+The system dispatches notifications across **In-App** and **Email** channels for the following **11 master lifecycle events**:
+
+1. **Seller Registration Decision:** Seller onboarding approval or rejection (with mandatory feedback).
+2. **Category Permission Decision:** Category authorization request approval, rejection, or administrative revocation.
+3. **Order Placed:** Sent to customer upon successful payment capture and split notifications sent to each affected seller for their items.
+4. **Order Cancelled:** Pre-shipment cancellation notice sent to customer and seller (with refund details).
+5. **Order Shipped:** Sent to customer with courier name and AWB tracking number.
+6. **Order Delivered:** Manual delivery confirmation by seller sent to customer, initiating the 5-day return window.
+7. **Return Lifecycle:** Return requested by customer, approved by Super Admin, customer return shipment entered, seller inspection verified/rejected, or return rejected.
+8. **Refund Completed:** Customer refund processed via payment gateway (with gateway refund reference).
+9. **Dispute Raised:** Customer reports "Not received" within 7 days of delivery mark; alerts Super Admin and affected seller.
+10. **Dispute Resolved:** Super Admin arbitrates "Not received" dispute (upholding refund with seller debit, or rejecting dispute and unblocking settlement); sent to customer and seller.
+11. **Settlement Completed:** Weekly manual settlement completed by Super Admin, sent to seller with itemized breakdown and external bank transaction reference number.
 
 ## 4. Rules
 

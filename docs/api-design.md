@@ -5,12 +5,13 @@
 | Field | Value |
 |---|---|
 | Document Name | API Design |
-| Product | Multi-Vendor Marketplace |
-| Version | 1.0 |
-| Status | Draft |
+| Product | Multi-Vendor Clothing Marketplace |
+| Version | 1.2 |
+| Status | Approved Baseline Specification |
 | Prepared By | Bhavya Jaiswal |
 | Approved By | Super Admin (Client) |
-| Last Updated | DD-MM-YYYY |
+| Source of Truth | docs/SRS.md (v1.2) |
+| Last Updated | 2026-10-07 |
 
 ---
 

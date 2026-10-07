@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `SellerAdjustment` entity represents a double-entry ledger of debits and credits applied to a seller's financial account outside standard delivered item sales.
+The `SellerAdjustment` entity represents a ledger with signed amounts of debits and credits applied to a seller's financial account outside standard delivered item sales.
 
 It manages shortfalls from negative settlement calculations, charges resulting from lost "Not received" customer disputes, deductions for seller-fault return shipping, manual administrative adjustments, and administrative write-offs.
 
