@@ -1,3 +1,5 @@
+> **Superseded by SRS v1.2. Do not use for implementation.**
+
 # Multi-Vendor Marketplace
 ## Client Clarification Questionnaire
 

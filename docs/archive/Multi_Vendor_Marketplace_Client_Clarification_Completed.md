@@ -1,9 +1,14 @@
-Multi-Vendor Marketplace
-Client Clarification & Confirmed Requirements
-Project: Multi-Vendor Marketplace
-Version: 1.0
-Status: Client Decisions Consolidated
-Important note: The supplied questionnaire contains 123 requirement questions across 15 sections (plus a Section 16 approval/sign-off block). This document records the decisions made in the conversation, including accepted defaults and explicit recommendations.
+> **Superseded by SRS v1.2. Do not use for implementation.**
+
+# Multi-Vendor Marketplace
+## Client Clarification & Confirmed Requirements
+
+**Project:** Multi-Vendor Marketplace  
+**Version:** 1.0  
+**Status:** Client Decisions Consolidated  
+
+**Important note:** The supplied questionnaire contains 123 requirement questions across 15 sections (plus a Section 16 approval/sign-off block). This document records the decisions made in the conversation, including accepted defaults and explicit recommendations.
+
 ## 1. Product Scope
 
 | ID | Question | Final Client Decision |
@@ -214,11 +219,13 @@ A multi-seller cart creates one customer-facing order with Order Items associate
 Razorpay webhook/server confirmation is authoritative for payment confirmation; duplicate checkout/payment requests must be idempotent.
 Seller verification documents are private and accessible only to authorized Super Admin users; document downloads are audited.
 Version 1 uses manual seller payout recording and manual shipping handling.
+
 ## Section 16 — Approval
 By approving this document, the client confirms that the answers represent the intended Version 1 marketplace behavior. Any later changes may affect database design, API contracts, UI, estimates, timelines, and implementation.
-Client Name: ______________________________________________________________________
-Signature: ______________________________________________________________________
-Date: ______________________________________________________________________
-Product/Engineering Representative: ______________________________________________________________________
-Signature: ______________________________________________________________________
+
+Client Name: ______________________________________________________________________  
+Signature: ______________________________________________________________________  
+Date: ______________________________________________________________________  
+Product/Engineering Representative: ______________________________________________________________________  
+Signature: ______________________________________________________________________  
 Date: ______________________________________________________________________

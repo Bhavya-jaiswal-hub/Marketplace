@@ -1,3 +1,5 @@
+> **Superseded by SRS v1.2. Do not use for implementation.**
+
 # Implementation Baseline
 
 ## Purpose
