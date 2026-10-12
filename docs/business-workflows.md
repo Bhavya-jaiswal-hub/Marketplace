@@ -80,40 +80,42 @@ This document describes the end-to-end business workflows of the Multi-Vendor Cl
 4. **Pre-Shipment Cancellation (Cutoff at `Shipped`):**
    - Customer can cancel any item **before** the seller marks it `Shipped`.
    - Seller can cancel an item before shipping if out of stock.
-   - **Shipping Fee Allocation on Cancellation:**
-     - Partial cancellation (at least one item remains active): Flat shipping fee is retained for remaining items.
-     - Full cancellation (all items in seller shipment cancelled): Shipping fee is refunded in full.
+   - **Refund & Shipping Fee Allocation on Cancellation:**
+     - Partial cancellation (at least one item in seller shipment remains active): Item price actually paid for cancelled items is refunded; original flat shipping fee is retained for remaining items.
+     - Full cancellation (all items in seller shipment cancelled): Item price actually paid and the original shipping fee for that seller are refunded in full.
    - Immediate gateway refund is triggered.
 
 ---
 
 ### Workflow 6: Delivery Confirmation & "Not Received" Dispute Arbitration (SRS FR-9, BR-11, BR-12, UC-ADM-07, UC-SEL-07, UC-CUS-06)
-1. **Delivery Confirmation:** The seller manually marks an item `Delivered` in the seller portal.
-2. **Dual Timers Initiated:** The `Delivered` timestamp starts:
-   - The **5-day customer return window**.
-   - The **7-day settlement holding period**.
-3. **"Not Received" Claim Submission:** Customer may report "Not received" within 7 calendar days of the `Delivered` mark.
+1. **Delivery Confirmation:** The seller manually marks an item `Delivered` in the seller portal, recording `delivered_at` in UTC.
+2. **Dual Timing Boundaries Initiated:** The UTC `delivered_at` timestamp starts:
+   - The **Return Window:** Allowed while `now <= delivered_at + 120 hours` (5 calendar days).
+   - The **Settlement Holding Period:** Eligible only when `run_timestamp > delivered_at + 168 hours` (strictly later).
+3. **"Not Received" Claim Submission:** Customer may report "Not received" strictly while `now <= delivered_at + 168 hours` (7 calendar days). Once `now > delivered_at + 168 hours`, reporting is blocked.
 4. **Status & Settlement Freeze:** The item status transitions to `Not Received - Under Dispute`. Weekly settlement for this item is immediately frozen.
 5. **SLA & Seller Proof:**
-   - Dispute is escalated to Super Admin with a **target SLA of 3 business days**. Overdue disputes are flagged on the Admin dashboard.
+   - Business day is defined as Monday to Friday in IST (public holidays are not excluded in V1).
+   - Target SLA deadline is computed as `sla_due_at = dispute_raised_at + 3 business days`, same IST time of day.
+   - Dispute is escalated to Super Admin; overdue disputes past `sla_due_at` are flagged on the Admin dashboard.
    - Seller can upload delivery proof (courier delivery slip, tracking confirmation notes).
 6. **Admin Arbitration Outcomes:**
    - **Dispute Upheld (Customer Refund):** Super Admin refunds the customer in full (price + shipping fee share) and charges the refunded amount to the seller as a `DISPUTE_CHARGE_DEBIT` in the `SellerAdjustment` ledger.
-   - **Dispute Rejected:** Customer claim is rejected, item status reverts, and the item becomes eligible for weekly settlement once the 7-day post-delivery holding period elapses.
+   - **Dispute Rejected:** Customer claim is rejected, item status reverts, and the item becomes eligible for weekly settlement once `run_timestamp > delivered_at + 168 hours` elapses.
 
 ---
 
-### Workflow 7: 5-Day Returns & Fault-Based Inspection (SRS FR-11, BR-11, UC-SEL-06, UC-ADM-07, UC-CUS-06)
-1. **Return Request:** Customer submits a return request within 5 days of delivery (`Requested`) with mandatory reason and optional photos.
+### Workflow 7: 5-Day Returns & Fault-Based Inspection (SRS FR-10, FR-11, BR-10, BR-11, UC-SEL-06, UC-ADM-07, UC-CUS-06)
+1. **Return Request:** Customer submits a return request while `now <= delivered_at + 120 hours` (`Requested`) with mandatory reason and optional photos.
 2. **Admin Eligibility Validation:** Super Admin verifies return window and eligibility (`Approved` or `Rejected`).
 3. **Customer Return Shipment:** Customer enters return courier and tracking number (`In Transit`).
 4. **Seller Receipt & Physical Inspection:** Seller confirms receipt (`Received`) and performs physical inspection:
    - **Verified:** Condition accepted; return verified.
    - **Rejected on Inspection:** Item damaged/worn/missing tags; seller records mandatory explanation and escalates to Super Admin.
 5. **Dispute Resolution:** Super Admin reviews contested rejections and makes final determination.
-6. **Fault Allocation & Refund Execution:**
-   - **Seller Fault** (defective, damaged, wrong item/size sent): Seller bears return shipping (deducted from seller payout); customer receives full refund of item price. Original shipping fee is refunded only if all items in that seller's shipment were returned due to seller fault.
-   - **Customer Discretion** (fit/size preference, change of mind): Customer bears return shipping; customer receives refund of item price only (original shipping fee retained).
+6. **Fault Allocation & Refund Execution (per return reason):**
+   - **Seller Fault** (defective, damaged, wrong item/size sent): Customer receives full refund of item price actually paid. Original shipping fee is refunded if and only if all items in that seller shipment were returned due to seller fault. The return courier cost is reimbursed to the customer and deducted from the seller's weekly settlement via the `SellerAdjustment` ledger.
+   - **Customer Discretion / Change of Mind** (fit/size preference, change of mind): The customer pays their own courier cost (borne directly by customer; not reimbursed). Customer receives refund of item price actually paid only (original shipping fee is retained).
 7. **Gateway Refund:** Super Admin triggers gateway refund upon verified completion (`Refunded`).
 
 ---
@@ -121,13 +123,15 @@ This document describes the end-to-end business workflows of the Multi-Vendor Cl
 ### Workflow 8: Weekly Manual Settlement & Negative Balance Management (SRS FR-12, BR-12, UC-ADM-08, UC-SEL-08)
 1. **Eligibility Compilation:** Weekly, Super Admin initiates the settlement cycle. The system compiles items where:
    - Status is `Delivered`.
-   - $\ge 7$ full calendar days have elapsed since `Delivered` timestamp.
+   - Measured strictly against UTC `delivered_at`: only when `run_timestamp > delivered_at + 168 hours` (strictly later).
    - No open return, inspection dispute, customer "Not received" claim (`Not Received - Under Dispute`), or pending refund exists.
+   - The settlement run re-checks all of these inside the same database transaction that creates the settlement to ensure atomic isolation.
 2. **Calculation & Adjustment Netting:**
    $$\text{Net Calculated} = \text{Gross Delivered Sales} + \text{Shipping Collected} - \text{Platform Commission} - \text{Return Deductions} - \text{Seller-Fault Return Shipping} - \text{Carried-Forward Debits}$$
 3. **Negative Balance Handling via Seller Adjustment Ledger:**
    - If $\text{Net Calculated} \ge 0$: Payout amount equals Net Calculated; applied debits are marked `APPLIED`.
    - If $\text{Net Calculated} < 0$: Payout amount is set to **₹0.00** (never generate a negative settlement record). The shortfall is recorded as a `SETTLEMENT_SHORTFALL_DEBIT` in the `SellerAdjustment` ledger and carried forward to the seller's next settlement run.
+   - **Single Source of Truth for Debit Balances:** The `SellerAdjustment` ledger is the only source for debit balances; settlement columns (`carried_forward_debit_applied`, `shortfall_amount`) are frozen snapshots and never read as the current balance. Live outstanding debit balances are computed solely by aggregating active unsettled debits from the `SellerAdjustment` ledger.
 4. **Admin Debit Write-Off:** Super Admin may waive an uncollectible debit balance with a mandatory audit justification (`written_off_by`, `written_off_at`, `written_off_reason`).
 5. **Disbursement & Immutable Locking:** Super Admin executes external banking/UPI payouts for positive amounts, records the mandatory **Bank Transaction Reference Number**, and locks settlement records as immutable (`Settled`).
 6. **Seller Statements:** Sellers view itemized settlement statements, gross sales, deductions, and outstanding carried-forward debit balances.

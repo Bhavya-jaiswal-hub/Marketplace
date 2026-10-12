@@ -187,7 +187,7 @@ Transitions item from `Placed` $\to$ `Packed`.
 
 ---
 
-# 6. Admin Shipping Settings Endpoints (SRS FR-8, BR-5, PLC-3)
+# 6. Admin Shipping Settings Endpoints (SRS FR-8, BR-10, PLC-3)
 
 Shipping rules are platform-wide parameters managed by Super Admin and dynamically fetched during cart/checkout calculations. They are configurable data values and never hardcoded in application logic.
 

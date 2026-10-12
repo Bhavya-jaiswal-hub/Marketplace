@@ -33,7 +33,7 @@ Reporting and Audit provides authorized operational reports and immutable record
 
 ## 3. Rules
 
-- **Admin Sales Segregation (SRS FR-14, BR-6):** Products sold directly by the Super Admin operate with 0% platform commission and are excluded from seller settlements. Admin retail revenue, order volumes, and fulfillment stats are tracked and reported separately via `/api/v1/admin/reports/admin-sales`.
+- **Admin Sales Segregation (SRS FR-14, BR-7):** Products sold directly by the Super Admin operate with 0% platform commission and are excluded from seller settlements. Admin retail revenue, order volumes, and fulfillment stats are tracked and reported separately via `/api/v1/admin/reports/admin-sales`.
 - Administrative reports require Super Admin authorization unless a future seller-scoped report is explicitly approved.
 - Every report must support bounded pagination or controlled export limits.
 - Date ranges, filters, and sort fields must be validated and allowlisted.

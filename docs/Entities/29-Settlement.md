@@ -66,7 +66,7 @@ $$\text{net\_calculated\_amount} = \text{gross\_product\_sales} + \text{total\_s
   $$\text{payout\_amount} = 0.00, \quad \text{carried\_forward\_debit\_balance} = |\text{net\_calculated\_amount}|$$
   *(A new `SETTLEMENT_SHORTFALL_DEBIT` entry is recorded in the `SellerAdjustment` ledger for this shortfall).*
 
-## Business Rules (SRS FR-4, FR-12, BR-4, BR-7, BR-12, AC-7)
+## Business Rules (SRS FR-4, FR-12, BR-7, BR-12, AC-7)
 
 1. **Manual Weekly Execution:** Settlements are calculated and executed manually by the Super Admin on a weekly administrative cycle (no automated bank API payout engine in V1).
 2. **7-Day Settlement Holding Period:** An order item is eligible for inclusion only if $\ge 7$ full calendar days have elapsed since the seller marked the item `Delivered`.

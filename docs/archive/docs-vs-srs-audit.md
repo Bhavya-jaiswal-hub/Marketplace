@@ -1,3 +1,6 @@
+> [!WARNING]
+> Historical report. Quotes old rules. Do not use for implementation.
+
 # Cross-Document Audit Report: Documentation vs. docs/SRS.md (v1.1)
 
 > **Document Status:** Reference Baseline Audit  

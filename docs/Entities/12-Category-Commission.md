@@ -200,7 +200,7 @@ A single customer order may contain products from multiple sellers.
 
 Therefore, commission must be calculated independently for each applicable seller/product category.
 
-### Super Admin Direct Retail Exemption (SRS FR-4, BR-4, BR-7)
+### Super Admin Direct Retail Exemption (SRS FR-4, BR-7)
 - Products listed and sold directly by the Super Admin automatically incur **0% commission**.
 - Admin sales are exempt from platform commission retention and do not generate seller settlement records.
 

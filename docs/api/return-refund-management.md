@@ -128,16 +128,14 @@ Sets status to `Received`.
 
 ---
 
-### 5.2 Fault Allocation & Refund Rules (SRS FR-11, BR-11)
+### 5.2 Fault Allocation & Refund Rules (SRS FR-10, FR-11, BR-10, BR-11)
 
-1. **Seller Fault** (`SELLER_FAULT`):
-   - Defective, damaged, wrong item, or wrong size sent by seller.
-   - Seller bears return shipping cost (deducted from weekly seller settlement).
-   - Customer receives 100% refund of actual price paid. (Original shipping is refunded only if all items in seller shipment were returned due to seller fault).
-2. **Customer Discretion** (`CUSTOMER_FAULT`):
-   - Fit preference, change of mind.
-   - Customer bears return shipping cost.
-   - Customer receives refund of item price only (original shipping fee retained).
-3. **Gateway Execution:**
+Per return reason, refund disbursements are calculated as follows:
+1. **Item Price:** The customer is refunded the tax-inclusive item price actually paid.
+2. **Original Shipping Fee:** The original shipping fee is refunded if and only if the return is seller-fault (and all items in that seller shipment were returned due to seller fault) or the order/seller shipment was cancelled in full prior to shipping. For partial cancellations or change-of-mind returns, the original shipping fee is retained.
+3. **Return Courier Cost:**
+   - **Customer Discretion / Change of Mind (`CUSTOMER_FAULT`):** The customer pays their own courier cost (borne directly by the customer; not reimbursed). Customer receives a refund of the item price actually paid only.
+   - **Seller Fault (`SELLER_FAULT` - Defective, damaged, wrong item/size sent):** The return courier cost is reimbursed to the customer and deducted from the seller's weekly settlement via the `SellerAdjustment` ledger. Customer receives a full refund of the item price actually paid (+ original shipping fee if all items in the seller shipment were returned due to seller fault).
+4. **Gateway Execution:**
    - Programmatic refund dispatched via payment gateway API with idempotency token.
-   - Sets status to `Refunded`.
+   - Sets return status to `Refunded`.
