@@ -92,6 +92,7 @@ enum ProductStatus {
   PAUSED
   HIDDEN
   DELETED
+  REMOVED_BY_ADMIN
 }
 
 enum CustomerAddressType {
@@ -111,9 +112,14 @@ enum OrderStatus {
   PENDING
   CONFIRMED
   PROCESSING
+  PLACED
+  PARTIALLY_SHIPPED
+  PARTIALLY_DELIVERED
   SHIPPED
   DELIVERED
+  PARTIALLY_CANCELLED
   CANCELLED
+  UNDER_DISPUTE
   RETURNED
   REFUNDED
 }
@@ -122,9 +128,12 @@ enum OrderItemStatus {
   PENDING
   CONFIRMED
   PROCESSING
+  PLACED
+  PACKED
   SHIPPED
   DELIVERED
   CANCELLED
+  NOT_RECEIVED_UNDER_DISPUTE
   RETURN_REQUESTED
   RETURNED
   REFUNDED
@@ -165,10 +174,15 @@ enum PaymentMethod {
 
 enum ReturnRequestStatus {
   PENDING
+  REQUESTED
   APPROVED
   REJECTED
+  IN_TRANSIT
   PICKUP_SCHEDULED
   RECEIVED
+  VERIFIED
+  REJECTED_ON_INSPECTION
+  REFUNDED
   COMPLETED
   CANCELLED
 }
@@ -196,12 +210,48 @@ enum SettlementStatus {
   COMPLETED
   FAILED
   CANCELLED
+  NOT_ELIGIBLE
+  ELIGIBLE
+  SETTLED
 }
 
 enum SettlementPayoutMethod {
   BANK_TRANSFER
   UPI
   MANUAL
+}
+
+enum DisputeStatus {
+  NONE
+  OPEN
+  RESOLVED_REFUNDED
+  RESOLVED_DELIVERED
+}
+
+enum DisputeResolutionOutcome {
+  CUSTOMER_REFUND_UPHELD
+  DISPUTE_REJECTED
+}
+
+enum AdjustmentType {
+  SETTLEMENT_SHORTFALL_DEBIT
+  DISPUTE_CHARGE_DEBIT
+  SELLER_FAULT_RETURN_SHIPPING_DEBIT
+  MANUAL_DEBIT
+  MANUAL_CREDIT
+  WRITE_OFF
+}
+
+enum LedgerDirection {
+  DEBIT
+  CREDIT
+}
+
+enum AdjustmentStatus {
+  PENDING
+  APPLIED
+  WRITTEN_OFF
+  CANCELLED
 }
 
 enum NotificationChannel {
@@ -267,6 +317,9 @@ model User {
   reviewedSellerCategories   SellerCategory[]     @relation("ReviewedSellerCategories")
   createdCategories          Category[]           @relation("CreatedCategories")
   createdCategoryCommissions CategoryCommission[] @relation("CreatedCategoryCommissions")
+  takenDownProducts          Product[]            @relation("AdminProductTakedowns")
+  resolvedDisputes           OrderItem[]          @relation("AdminResolvedDisputes")
+  writtenOffAdjustments      SellerAdjustment[]   @relation("AdminWrittenOffAdjustments")
   auditLogs                  AuditLog[]
   notifications              Notification[]
   activityLogs               ActivityLog[]
@@ -335,6 +388,7 @@ model SellerProfile {
   businessDescription String?
   contactEmail        String
   contactMobile       String?
+  gstin               String?
   status              SellerStatus         @default(PENDING)
   payoutDetails       Json?
   addresses           SellerAddress[]
@@ -345,6 +399,7 @@ model SellerProfile {
   returnRequests      ReturnRequest[]
   settlements         Settlement[]
   settlementItems     SettlementItem[]
+  adjustments         SellerAdjustment[]
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
 
@@ -410,6 +465,38 @@ model SellerAddress {
   @@index([sellerId, addressType])
 }
 
+model SizeSet {
+  id          String         @id @default(uuid()) @db.Uuid
+  name        String         @unique
+  code        String         @unique
+  description String?
+  isActive    Boolean        @default(true)
+  values      SizeSetValue[]
+  categories  Category[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([code])
+  @@index([isActive])
+}
+
+model SizeSetValue {
+  id          String           @id @default(uuid()) @db.Uuid
+  sizeSetId   String           @db.Uuid
+  sizeSet     SizeSet          @relation(fields: [sizeSetId], references: [id], onDelete: Cascade)
+  value       String
+  displayName String
+  sortOrder   Int              @default(0)
+  isActive    Boolean          @default(true)
+  variants    ProductVariant[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@unique([sizeSetId, value])
+  @@index([sizeSetId, sortOrder])
+  @@index([isActive])
+}
+
 model Category {
   id                 String               @id @default(uuid()) @db.Uuid
   parentCategoryId   String?              @db.Uuid
@@ -418,6 +505,8 @@ model Category {
   name               String
   slug               String               @unique
   description        String?
+  sizeSetId          String?              @db.Uuid
+  sizeSet            SizeSet?             @relation(fields: [sizeSetId], references: [id], onDelete: SetNull)
   isActive           Boolean              @default(true)
   createdById        String               @db.Uuid
   createdBy          User                 @relation("CreatedCategories", fields: [createdById], references: [id])
@@ -428,6 +517,7 @@ model Category {
   updatedAt          DateTime             @updatedAt
 
   @@index([parentCategoryId])
+  @@index([sizeSetId])
   @@index([isActive])
 }
 
@@ -471,29 +561,59 @@ model CategoryCommission {
 }
 
 model Product {
-  id             String                 @id @default(uuid()) @db.Uuid
-  sellerId       String                 @db.Uuid
-  seller         SellerProfile          @relation(fields: [sellerId], references: [id], onDelete: Cascade)
-  categoryId     String                 @db.Uuid
-  category       Category               @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  name           String
-  description    String?
-  sku            String                 @unique
-  price          Decimal                @db.Decimal(10, 2)
-  status         ProductStatus          @default(ACTIVE)
-  deletedAt      DateTime?
-  images         ProductImage[]
-  specifications ProductSpecification[]
-  inventory      Inventory?
-  cartItems      CartItem[]
-  orderItems     OrderItem[]
-  createdAt      DateTime               @default(now())
-  updatedAt      DateTime               @updatedAt
+  id                 String                 @id @default(uuid()) @db.Uuid
+  sellerId           String                 @db.Uuid
+  seller             SellerProfile          @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  categoryId         String                 @db.Uuid
+  category           Category               @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  name               String
+  description        String?
+  sku                String                 @unique
+  price              Decimal                @db.Decimal(10, 2)
+  compareAtPrice     Decimal?               @db.Decimal(10, 2)
+  status             ProductStatus          @default(ACTIVE)
+  takedownReason     String?
+  takedownByAdminId  String?                @db.Uuid
+  takedownByAdmin    User?                  @relation("AdminProductTakedowns", fields: [takedownByAdminId], references: [id], onDelete: SetNull)
+  deletedAt          DateTime?
+  images             ProductImage[]
+  specifications     ProductSpecification[]
+  variants           ProductVariant[]
+  inventory          Inventory?
+  cartItems          CartItem[]
+  orderItems         OrderItem[]
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
 
   @@index([sellerId, status])
   @@index([categoryId, status])
   @@index([status])
   @@index([price])
+  @@index([takedownByAdminId])
+}
+
+model ProductVariant {
+  id                String           @id @default(uuid()) @db.Uuid
+  productId         String           @db.Uuid
+  product           Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sizeSetValueId    String?          @db.Uuid
+  sizeSetValue      SizeSetValue?    @relation(fields: [sizeSetValueId], references: [id], onDelete: SetNull)
+  sku               String           @unique
+  size              String
+  color             String
+  stockQuantity     Int              @default(0)
+  lowStockThreshold Int              @default(5)
+  priceOverride     Decimal?         @db.Decimal(10, 2)
+  isActive          Boolean          @default(true)
+  cartItems         CartItem[]
+  orderItems        OrderItem[]
+  inventory         Inventory?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@index([productId, isActive])
+  @@index([sku])
+  @@index([sizeSetValueId])
 }
 
 model ProductImage {
@@ -526,6 +646,8 @@ model Inventory {
   id                String             @id @default(uuid()) @db.Uuid
   productId         String             @unique @db.Uuid
   product           Product            @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantId         String?            @unique @db.Uuid
+  variant           ProductVariant?    @relation(fields: [variantId], references: [id], onDelete: Cascade)
   availableQuantity Int                @default(0)
   reservedQuantity  Int                @default(0)
   lowStockThreshold Int                @default(5)
@@ -534,6 +656,7 @@ model Inventory {
   updatedAt         DateTime           @updatedAt
 
   @@index([productId])
+  @@index([variantId])
 }
 
 model InventoryHistory {
@@ -628,18 +751,21 @@ model Cart {
 }
 
 model CartItem {
-  id        String   @id @default(uuid()) @db.Uuid
-  cartId    String   @db.Uuid
-  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
-  productId String   @db.Uuid
-  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  quantity  Int      @default(1)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id        String          @id @default(uuid()) @db.Uuid
+  cartId    String          @db.Uuid
+  cart      Cart            @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productId String          @db.Uuid
+  product   Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantId String?         @db.Uuid
+  variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  quantity  Int             @default(1)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
 
   @@unique([cartId, productId])
   @@index([cartId])
   @@index([productId])
+  @@index([variantId])
 }
 
 model Order {
@@ -674,42 +800,63 @@ model Order {
 }
 
 model OrderItem {
-  id                 String             @id @default(uuid()) @db.Uuid
-  orderId            String             @db.Uuid
-  order              Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  productId          String             @db.Uuid
-  product            Product            @relation(fields: [productId], references: [id], onDelete: Restrict)
-  sellerId           String             @db.Uuid
-  seller             SellerProfile      @relation(fields: [sellerId], references: [id], onDelete: Restrict)
-  productName        String
-  sku                String
-  unitPrice          Decimal            @db.Decimal(10, 2)
-  quantity           Int
-  subtotal           Decimal            @db.Decimal(10, 2)
-  discountAmount     Decimal            @default(0.00) @db.Decimal(10, 2)
-  taxAmount          Decimal            @default(0.00) @db.Decimal(10, 2)
-  totalAmount        Decimal            @db.Decimal(10, 2)
-  commissionRate     Decimal            @db.Decimal(5, 2)
-  commissionAmount   Decimal            @db.Decimal(10, 2)
-  sellerEarnings     Decimal            @db.Decimal(10, 2)
-  status             OrderItemStatus    @default(PENDING)
-  trackingCarrier    String?
-  trackingNumber     String?
-  shippedAt          DateTime?
-  deliveredAt        DateTime?
-  cancelledAt        DateTime?
-  cancellationReason String?
-  history            OrderItemHistory[]
-  returnRequests     ReturnRequest[]
-  refunds            Refund[]
-  settlementItem     SettlementItem?
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
+  id                     String                    @id @default(uuid()) @db.Uuid
+  orderId                String                    @db.Uuid
+  order                  Order                     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId              String                    @db.Uuid
+  product                Product                   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  variantId              String?                   @db.Uuid
+  variant                ProductVariant?           @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  sellerId               String                    @db.Uuid
+  seller                 SellerProfile             @relation(fields: [sellerId], references: [id], onDelete: Restrict)
+  productName            String
+  sku                    String
+  courierName            String?
+  trackingCarrier        String?
+  trackingNumber         String?
+  shippedAt              DateTime?
+  deliveredAt            DateTime?
+  productNameSnapshot    String?
+  skuSnapshot            String?
+  sizeSnapshot           String?
+  colorSnapshot          String?
+  unitPrice              Decimal                   @db.Decimal(10, 2)
+  quantity               Int
+  subtotal               Decimal                   @db.Decimal(10, 2)
+  discountAmount         Decimal                   @default(0.00) @db.Decimal(10, 2)
+  taxAmount              Decimal                   @default(0.00) @db.Decimal(10, 2)
+  totalAmount            Decimal                   @db.Decimal(10, 2)
+  commissionRate         Decimal                   @db.Decimal(5, 2)
+  commissionAmount       Decimal                   @db.Decimal(10, 2)
+  shippingFeeShare       Decimal                   @default(0.00) @db.Decimal(10, 2)
+  sellerEarnings         Decimal                   @db.Decimal(10, 2)
+  status                 OrderItemStatus           @default(PENDING)
+  notReceivedReportedAt  DateTime?
+  disputeStatus          DisputeStatus             @default(NONE)
+  slaDueAt               DateTime?
+  sellerProofNotes       String?
+  sellerProofDocumentUrl String?
+  resolutionOutcome      DisputeResolutionOutcome?
+  resolvedById           String?                   @db.Uuid
+  resolvedBy             User?                     @relation("AdminResolvedDisputes", fields: [resolvedById], references: [id], onDelete: SetNull)
+  resolvedAt             DateTime?
+  disputeAdminNotes      String?
+  cancelledAt            DateTime?
+  cancellationReason     String?
+  history                OrderItemHistory[]
+  returnRequests         ReturnRequest[]
+  refunds                Refund[]
+  settlementItem         SettlementItem?
+  adjustments            SellerAdjustment[]
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
 
   @@index([orderId])
   @@index([sellerId, status])
   @@index([productId])
+  @@index([variantId])
   @@index([status])
+  @@index([disputeStatus])
 }
 
 model OrderItemHistory {
@@ -797,6 +944,7 @@ model ReturnRequest {
   receivedAt           DateTime?
   completedAt          DateTime?
   refund               Refund?
+  adjustments          SellerAdjustment[]
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
 
@@ -838,28 +986,30 @@ model Refund {
 }
 
 model Settlement {
-  id                  String                 @id @default(uuid()) @db.Uuid
-  settlementNumber    String                 @unique
-  sellerId            String                 @db.Uuid
-  seller              SellerProfile          @relation(fields: [sellerId], references: [id], onDelete: Restrict)
-  periodFrom          DateTime
-  periodTo            DateTime
-  grossAmount         Decimal                @db.Decimal(10, 2)
-  commissionAmount    Decimal                @db.Decimal(10, 2)
-  refundDeductions    Decimal                @default(0.00) @db.Decimal(10, 2)
-  adjustmentAmount    Decimal                @default(0.00) @db.Decimal(10, 2)
-  netSettlementAmount Decimal                @db.Decimal(10, 2)
-  currency            String                 @default("INR")
-  status              SettlementStatus       @default(PENDING)
-  payoutMethod        SettlementPayoutMethod @default(BANK_TRANSFER)
-  payoutReference     String?
-  payoutNotes         String?
-  processedById       String?                @db.Uuid
-  bankSnapshot        Json?
-  processedAt         DateTime?
-  items               SettlementItem[]
-  createdAt           DateTime               @default(now())
-  updatedAt           DateTime               @updatedAt
+  id                      String                 @id @default(uuid()) @db.Uuid
+  settlementNumber        String                 @unique
+  sellerId                String                 @db.Uuid
+  seller                  SellerProfile          @relation(fields: [sellerId], references: [id], onDelete: Restrict)
+  periodFrom              DateTime
+  periodTo                DateTime
+  grossAmount             Decimal                @db.Decimal(10, 2)
+  commissionAmount        Decimal                @db.Decimal(10, 2)
+  refundDeductions        Decimal                @default(0.00) @db.Decimal(10, 2)
+  adjustmentAmount        Decimal                @default(0.00) @db.Decimal(10, 2)
+  netSettlementAmount     Decimal                @db.Decimal(10, 2)
+  currency                String                 @default("INR")
+  status                  SettlementStatus       @default(PENDING)
+  payoutMethod            SettlementPayoutMethod @default(BANK_TRANSFER)
+  payoutReference         String?
+  payoutNotes             String?
+  processedById           String?                @db.Uuid
+  bankSnapshot            Json?
+  processedAt             DateTime?
+  items                   SettlementItem[]
+  originatingAdjustments  SellerAdjustment[]     @relation("OriginatingSettlement")
+  appliedAdjustments      SellerAdjustment[]     @relation("AppliedSettlement")
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
 
   @@index([sellerId, status])
   @@index([settlementNumber])
@@ -887,6 +1037,40 @@ model SettlementItem {
   @@index([settlementId])
   @@index([sellerId])
   @@index([orderItemId])
+}
+
+model SellerAdjustment {
+  id                      String           @id @default(uuid()) @db.Uuid
+  sellerId                String           @db.Uuid
+  seller                  SellerProfile    @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  type                    AdjustmentType
+  amount                  Decimal          @db.Decimal(10, 2)
+  direction               LedgerDirection
+  status                  AdjustmentStatus @default(PENDING)
+  reason                  String
+  orderItemId             String?          @db.Uuid
+  orderItem               OrderItem?       @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+  returnRequestId         String?          @db.Uuid
+  returnRequest           ReturnRequest?   @relation(fields: [returnRequestId], references: [id], onDelete: SetNull)
+  originatingSettlementId String?          @db.Uuid
+  originatingSettlement   Settlement?      @relation("OriginatingSettlement", fields: [originatingSettlementId], references: [id], onDelete: SetNull)
+  appliedInSettlementId   String?          @db.Uuid
+  appliedInSettlement     Settlement?      @relation("AppliedSettlement", fields: [appliedInSettlementId], references: [id], onDelete: SetNull)
+  appliedAt               DateTime?
+  isWrittenOff            Boolean          @default(false)
+  writtenOffById          String?          @db.Uuid
+  writtenOffBy            User?            @relation("AdminWrittenOffAdjustments", fields: [writtenOffById], references: [id], onDelete: SetNull)
+  writtenOffAt            DateTime?
+  writtenOffReason        String?
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+
+  @@index([sellerId, status])
+  @@index([type])
+  @@index([orderItemId])
+  @@index([returnRequestId])
+  @@index([originatingSettlementId])
+  @@index([appliedInSettlementId])
 }
 
 model Notification {
