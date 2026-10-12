@@ -115,7 +115,7 @@ Identity & Access Management (User, Role, Session, RefreshToken, PasswordResetTo
 - **Refund:** Programmatic gateway refund records based on actual price paid (tax-inclusive) (SRS FR-10, FR-11).
 - **Settlement:** Weekly administrative payout records executed by Super Admin with external **Bank Transaction Reference** numbers, accounting for gross sales, commissions, return deductions, seller-fault return shipping, applied carried-forward debits, and shortfall recording (SRS FR-12, Section 8.5).
 - **Settlement Item:** Itemized calculation per delivered order item (SRS FR-12, BR-12).
-- **Seller Adjustment:** Double-entry ledger tracking debits and credits (settlement shortfalls, dispute charges, seller-fault return shipping, manual adjustments, Admin write-offs) applied against weekly payouts (SRS FR-12, BR-12).
+- **Seller Adjustment:** Ledger with signed amounts tracking debits and credits (settlement shortfalls, dispute charges, seller-fault return shipping, manual adjustments, Admin write-offs) applied against weekly payouts (SRS FR-12, BR-12).
 
 ---
 

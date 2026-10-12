@@ -330,14 +330,16 @@ The system shall:
 - Allow sellers to update item fulfillment states: `Placed` $\to$ `Packed` $\to$ `Shipped` $\to$ `Delivered`.
 - Require sellers to record the **Courier Name** and **AWB Tracking Number** when marking an item `Shipped`.
 - Allow the seller to manually mark an order item as `Delivered` once physical delivery has occurred (Version 1 operates without direct courier API integration).
-- Establish that the seller's `Delivered` timestamp initiates both the **5-day customer return window** and the **7-day settlement holding countdown**.
-- Allow customers to report an order item as **"Not received"** within 7 calendar days of the seller marking it `Delivered`. This action sets the item status to `Not Received - Under Dispute`, escalates the case to Super Admin, and immediately blocks weekly settlement calculation for that item.
-- Provide a target SLA of **3 business days** for Super Admin resolution of "Not received" disputes (target SLA; no automated resolution on timeout).
-- Display open disputes on the Super Admin dashboard and prominently flag those exceeding the 3-business-day target SLA.
+- Establish that the seller's manual `Delivered` timestamp (recorded in UTC as `delivered_at`) initiates both the customer return window and the settlement holding countdown. All post-delivery timing windows are measured against the UTC `delivered_at` timestamp.
+- Allow customers to report an order item as **"Not received"** strictly while `now <= delivered_at + 168 hours` (7 calendar days, measured against the UTC `delivered_at` timestamp). Once `now > delivered_at + 168 hours`, reporting non-delivery is blocked. This action sets the item status to `Not Received - Under Dispute`, escalates the case to Super Admin, and immediately blocks weekly settlement calculation for that item.
+- Provide a target SLA of **3 business days** for Super Admin resolution of "Not received" disputes:
+  - Business day = Monday to Friday in IST; public holidays are not excluded in Version 1.
+  - The deadline is computed as `sla_due_at = dispute_raised_at + 3 business days`, same IST time of day.
+  - Display open disputes on the Super Admin dashboard and prominently flag those exceeding `sla_due_at` (target SLA; no automated resolution on timeout).
 - Allow the seller to submit proof of delivery (courier delivery notes, tracking confirmation details) to contested disputes.
 - Enforce two distinct Super Admin dispute resolution outcomes:
   1. **Dispute Upheld (Customer Refund):** Customer is refunded in full (including item price and applicable shipping fee share) and the refunded amount is charged to the seller as a debit adjustment in the Seller Adjustment ledger.
-  2. **Dispute Rejected:** Customer claim is rejected, item status is reverted, and the item becomes eligible for weekly settlement (provided the 7-day post-delivery hold has elapsed).
+  2. **Dispute Rejected:** Customer claim is rejected, item status is reverted, and the item becomes eligible for weekly settlement (provided the 168-hour post-delivery hold has elapsed).
 - Allow customers to cancel individual order items at any time **before** the item is marked `Shipped`.
 - Allow sellers to cancel an order item prior to shipping if stock is unavailable.
 - Enforce proportional shipping fee handling on pre-shipment cancellations:
@@ -345,17 +347,23 @@ The system shall:
   - If **all** items from a seller shipment are cancelled, the shipping fee for that seller is refunded in full.
 - Automatically execute an immediate gateway refund for pre-shipment cancellations.
 
-## FR-10 Payment Management
+## FR-10 Payment Management & Refund Processing
 The system shall:
 - Receive and hold all customer checkout payments in the marketplace payment gateway account.
 - Record payment gateway transaction IDs, payment methods, and timestamps against every order.
 - Maintain immutable transaction logs for all captured payments, partial refunds, and full refunds.
-- Process refunds programmatically back to the original customer payment method via gateway APIs.
+- Process refunds programmatically back to the original customer payment method via gateway APIs with idempotency protection.
 - Exclude automated TCS calculation in Version 1.
+- Enforce exact refund calculations per return and cancellation reason:
+  - **Item Price:** The refund is calculated on the tax-inclusive item price actually paid.
+  - **Original Shipping Fee:** The original shipping fee is refunded if and only if the return is seller-fault (and all items in that seller shipment were returned due to seller fault) or the order/seller shipment was cancelled in full prior to shipping. For partial cancellations or change-of-mind returns, the original shipping fee is retained.
+  - **Return Courier Cost:**
+    - For change-of-mind / customer-discretion returns, the customer pays their own courier cost (borne directly by the customer; not reimbursed).
+    - For seller-fault returns (defective, damaged, wrong item/size sent), the return courier cost is reimbursed to the customer and deducted from the seller's settlement via the Seller Adjustment ledger.
 
 ## FR-11 Returns, Inspection & Refund Workflow
 The system shall:
-- Permit return requests within a strict **5-day window** following the seller marking the item `Delivered`.
+- Permit return requests within a strict window measured against the UTC `delivered_at` timestamp: allowed while `now <= delivered_at + 120 hours` (5 calendar days). If `now > delivered_at + 120 hours`, return requests are blocked.
 - Require customers to select an order item, provide a mandatory return reason, and optional condition photos.
 - Route return requests to Super Admin for eligibility validation (`Requested` $\to$ `Approved` / `Rejected`).
 - Require customer to enter return shipping courier details and tracking ID (`In Transit`).
@@ -363,21 +371,23 @@ The system shall:
   - If approved, seller marks `Verified`.
   - If rejected (due to damage, wear, or missing tags), seller marks `Rejected on Inspection` with a mandatory explanation.
 - Route disputed rejections to Super Admin for final resolution.
-- Enforce return shipping cost and refund rules:
-  - **Seller Fault** (defective product, wrong size/item sent, damaged, not as listed): Seller bears return shipping cost (deducted from seller settlement); customer receives full refund of item price. Original shipping fee is refunded only if all items in that seller's shipment were returned due to seller fault.
-  - **Customer Discretion** (size/fit mismatch, change of mind): Customer bears return shipping cost; customer receives refund of item price only (original shipping fee is retained).
+- Enforce return shipping cost and refund rules matching FR-10:
+  - **Seller Fault** (defective product, wrong size/item sent, damaged, not as listed): Customer receives full refund of item price actually paid. Original shipping fee is refunded if and only if all items in that seller's shipment were returned due to seller fault. The return courier cost is reimbursed to the customer and deducted from the seller's settlement via the Seller Adjustment ledger.
+  - **Customer Discretion** (size/fit mismatch, change of mind): The customer pays their own courier cost; customer receives refund of item price actually paid only (original shipping fee is retained).
 - Trigger the gateway refund upon final Admin approval of the verified return.
 
 ## FR-12 Weekly Manual Settlement & Adjustment Ledger Management
 The system shall:
 - Run a weekly settlement calculation cycle initiated manually by the Super Admin.
-- Identify all settlement items meeting eligibility criteria: marked `Delivered` $\ge 7$ days ago with no open return request, active inspection dispute, customer "Not received" dispute (`Not Received - Under Dispute`), or pending refund.
+- Identify all settlement items meeting eligibility criteria strictly against the UTC `delivered_at` timestamp: only when `run_timestamp > delivered_at + 168 hours` (strictly later than 168 hours from delivery mark), and provided there is no open return request, inspection dispute, customer "Not received" dispute (`Not Received - Under Dispute`), or pending refund.
+- Re-check all of these eligibility criteria inside the same database transaction that creates the settlement to guarantee atomicity and prevent race conditions.
 - Aggregate eligible items per seller and compile applicable debits from the **Seller Adjustment Ledger** (including previous carried-forward debits, return deductions, seller-fault return shipping, and dispute debit charges).
 - Calculate Net Payable:
   $$\text{Net Payable} = \text{Gross Eligible Sales} + \text{Shipping Collected} - \text{Platform Commission} - \text{Return Deductions} - \text{Seller-Fault Return Shipping} - \text{Carried-Forward Debits}$$
 - Handle negative settlement results strictly via the Seller Adjustment ledger:
   - If $\text{Net Payable} \ge 0$: Payout amount equals Net Payable; recorded previous debit adjustments are marked as applied/cleared.
   - If $\text{Net Payable} < 0$: Payout amount is set to **₹0.00** (never generate a negative settlement record). The shortfall is recorded as a new seller debit entry in the Seller Adjustment ledger and carried forward to the subsequent weekly settlement run.
+- Declare the **Seller Adjustment ledger** as the single source of truth for debit balances: the Seller Adjustment ledger is the only source for debit balances; settlement columns (`carried_forward_debit_applied`, `shortfall_amount`) are frozen snapshots and never read as the current balance. Live outstanding debit balances are computed solely by aggregating active unsettled debits from the `SellerAdjustment` ledger.
 - Display the seller's current outstanding debit balance on both the Seller Dashboard and Admin Settlement View.
 - Allow Super Admin to waive or write off an outstanding seller debit balance with a mandatory reason (audit-logged).
 - Allow Super Admin to execute positive payouts via external banking/UPI channels and record the mandatory external **Bank Transaction Reference Number**.
@@ -430,7 +440,7 @@ The system shall generate exportable tabular and visual reports:
 ### NFR-4 Reliability & Data Consistency
 - Enforce ACID transactional boundaries on multi-vendor split-order placement, inventory reservation, and settlement generation.
 - Employ idempotency keys on payment capture and refund processing to eliminate duplicate charges.
-- Ensure database integrity with strict foreign key constraints, atomic state transitions, immutable financial snapshots, and double-entry adjustment ledger tracking.
+- Ensure database integrity with strict foreign key constraints, atomic state transitions, immutable financial snapshots, and ledger with signed amounts adjustment tracking.
 
 ### NFR-5 Availability & Recovery
 - Maintain platform availability target of 99.5% uptime outside scheduled maintenance windows.
@@ -507,43 +517,54 @@ Product visibility states conform strictly to:
 - A customer may cancel any individual order item until the seller updates the status to `Shipped`.
 - Once an item is `Shipped`, cancellation is disabled; the customer must wait for delivery and initiate a return.
 - A seller may cancel an order item before shipping if inventory is unavailable.
-- **Partial vs. Full Cancellation Shipping Allocation:**
-  - If a customer cancels **some** items from a seller shipment, the shipping fee is retained for the remaining items in that shipment.
-  - If **all** items in that seller's shipment are cancelled, the shipping fee for that seller is refunded in full.
+- **Partial vs. Full Cancellation Refund Allocation:**
+  - If a customer cancels **some** items from a seller shipment (partial cancellation), the item price actually paid for cancelled items is refunded, but the original shipping fee is retained for the remaining items in that shipment.
+  - If **all** items in that seller's shipment are cancelled (full cancellation), the item price actually paid and the original shipping fee for that seller are refunded in full.
 
 ### BR-10 Tax & Shipping Rules
 - All listed product prices are **tax-inclusive**. The platform does not calculate tax or deduct TCS in Version 1; sellers are responsible for their own tax compliance.
 - Platform shipping rules are Admin-configurable (flat fee per seller shipment, free above a seller subtotal threshold; default seed placeholders: ₹79 flat fee, free above ₹999).
 - Sellers must input the courier name and AWB tracking ID when dispatching shipments (`Shipped`).
+- **Shipping Fee Refundability & Return Courier Cost Rules:**
+  - Original shipping fee is refunded to the customer only if the order/seller shipment is cancelled in full prior to shipping or if all items in the seller shipment are returned due to seller-fault.
+  - In customer-discretion / change-of-mind returns, the customer pays their own return courier cost and original shipping is retained.
+  - In seller-fault returns, the return courier cost is reimbursed to the customer and charged to the seller via the Seller Adjustment ledger.
 
 ### BR-11 5-Day Returns, Inspection & Dispute Governance
-- Customers may request a return within **5 calendar days** of the seller marking the item `Delivered` (the tracking ID having been recorded at `Shipped`).
-- Customers may report an item as **"Not received"** within **7 calendar days** of the seller marking it `Delivered`. This action sets the item status to `Not Received - Under Dispute`, creates an administrative dispute for Super Admin arbitration, and immediately freezes weekly settlement for that item until resolved.
-- Super Admin should resolve "Not received" disputes within a **target SLA of 3 business days** (no automatic resolution on timeout; overdue disputes are flagged on the Admin dashboard).
+- **Timing Boundaries against UTC `delivered_at`:**
+  - All post-delivery windows are measured against the UTC `delivered_at` timestamp recorded when the seller marks the item `Delivered`.
+  - **Return Window:** Customers may request a return while `now <= delivered_at + 120 hours` (5 calendar days). Requests where `now > delivered_at + 120 hours` are strictly blocked.
+  - **"Not Received" Dispute Window:** Customers may report an item as "Not received" while `now <= delivered_at + 168 hours` (7 calendar days). This action sets the item status to `Not Received - Under Dispute`, creates an administrative dispute for Super Admin arbitration, and immediately freezes weekly settlement for that item until resolved. Reporting after 168 hours is blocked.
+- **Business Day Definition & Target Dispute SLA:**
+  - Business day = Monday to Friday in IST; public holidays are not excluded in Version 1.
+  - When a "Not received" dispute is submitted, the target SLA deadline is computed as `sla_due_at = dispute_raised_at + 3 business days`, same IST time of day.
+  - Super Admin should resolve "Not received" disputes within this target SLA; overdue disputes past `sla_due_at` are visually flagged on the Admin dashboard (no automatic resolution on timeout).
 - Sellers may upload proof of fulfillment/delivery (tracking records, carrier delivery slips, notes) in defense against contested disputes.
 - Dispute outcomes:
-  1. *Customer Refund Upheld:* Customer is refunded in full and the full refund amount is billed to the seller via an adjustment debit.
-  2. *Dispute Rejected:* Dispute closed; item becomes eligible for settlement once the 7-day post-delivery hold completes.
-- **Return Shipping Cost & Refund Allocation:**
-  - *Seller Fault* (defective, wrong item/size sent, damaged, not as listed): Seller bears return shipping (deducted from settlement); customer refunded item price. Original shipping fee is refunded only if all items in that seller shipment were returned due to seller fault.
-  - *Customer Discretion* (fit/size preference, change of mind): Customer bears return shipping; customer refunded item price only (original shipping fee is retained).
+  1. *Customer Refund Upheld:* Customer is refunded in full (including item price actually paid and applicable shipping fee share) and the full refund amount is billed to the seller via an adjustment debit.
+  2. *Dispute Rejected:* Dispute closed; item becomes eligible for settlement once the 168-hour post-delivery hold completes.
+- **Return Shipping Cost & Refund Allocation (per return reason):**
+  - *Seller Fault* (defective, wrong item/size sent, damaged, not as listed): Customer receives full refund of item price actually paid. Original shipping fee is refunded only if all items in that seller shipment were returned due to seller fault. The return courier cost is reimbursed to the customer and deducted from the seller's settlement via the Seller Adjustment ledger.
+  - *Customer Discretion* (fit/size preference, change of mind): The customer pays their own courier cost; customer receives refund of item price actually paid only (original shipping fee is retained).
 - Refunds are calculated on the actual price paid.
 
 ### BR-12 Weekly Manual Seller Settlement & Negative Balance Governance
 - Seller earnings are held in the marketplace payment gateway account upon order delivery.
-- Settlement eligibility requires:
+- **Settlement Eligibility:**
   1. Item status is `Delivered` (manually marked by seller).
-  2. At least **7 full days** have elapsed since the `Delivered` timestamp.
+  2. Measured strictly against the UTC `delivered_at` timestamp: only when `run_timestamp > delivered_at + 168 hours` (strictly later than 168 hours).
   3. No open return request, inspection dispute, customer "Not received" dispute (`Not Received - Under Dispute`), or pending refund exists for the item.
+  4. The settlement run re-checks all of these inside the same database transaction that creates the settlement to guarantee atomicity.
 - Super Admin runs the settlement cycle manually once per week.
 - Net Payable per seller:
   $$\text{Net Payable} = \text{Gross Delivered Sales} + \text{Shipping Collected} - \text{Platform Commission} - \text{Return Deductions} - \text{Seller-Fault Return Shipping} - \text{Carried-Forward Debits}$$
-- **Negative Balance Handling:**
+- **Negative Balance Handling & Single Source of Truth:**
   - If Net Payable $< 0$, the payout is **₹0.00**. No negative settlement record is generated.
   - The shortfall is recorded as an outstanding seller debit in the Seller Adjustment ledger and carried forward to the seller's next settlement run.
+  - **Single Source of Truth for Debit Balances:** The `SellerAdjustment` ledger is the only source for debit balances; settlement columns (`carried_forward_debit_applied`, `shortfall_amount`) are frozen snapshots and never read as the current balance. Live outstanding debit balances are computed solely by aggregating active unsettled debits from the `SellerAdjustment` ledger.
   - Settled records remain immutable.
   - Super Admin may waive/write off a seller debit balance with a mandatory audit-logged justification. Recovery from blocked/exited sellers is out of scope for V1.
-  - The seller dashboard displays the current carried-forward debit balance.
+  - The seller dashboard displays the current carried-forward debit balance derived from active adjustments.
 - Admin executes payment via external banking/UPI and enters the transaction reference number into the platform.
 - Once recorded, the settlement item status becomes `Settled` and the record is immutable.
 
@@ -779,5 +800,5 @@ The following items are operational prerequisites to be completed by the client 
 
 # 22. Open Questions
 
-1. **Variant-Level Differential Pricing Roadmap:**
-   - Will variant-level differential pricing (supported at the schema level via optional override) be enabled in Phase 2 or alongside the V2 expansion?
+*None. All architectural, scope, workflow, and business decisions are fully resolved and baselined for Version 1.*
+

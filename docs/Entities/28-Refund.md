@@ -46,7 +46,7 @@ Return & Refund Management
 | Created At | Timestamp | Record creation timestamp |
 | Updated At | Timestamp | Last modification timestamp |
 
-## Business & Refund Calculation Rules (SRS FR-8, FR-9, FR-10, FR-11, BR-10, BR-11)
+## Business & Refund Calculation Rules (SRS FR-8, FR-9, FR-10, FR-11, BR-9, BR-10, BR-11)
 
 1. **Tax-Inclusive Refund Amounts:** All refunds represent the exact price paid at purchase. No separate tax calculations or TCS deductions are performed in Version 1.
 2. **Cancellation Refunds:**

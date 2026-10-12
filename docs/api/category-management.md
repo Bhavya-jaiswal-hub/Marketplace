@@ -190,6 +190,13 @@ GET	/api/v1/categories/:categoryId	Get category details	Public / Customer
 POST	/api/v1/admin/categories	Create marketplace category	Super Admin
 PATCH	/api/v1/admin/categories/:categoryId	Update marketplace category	Super Admin
 DELETE	/api/v1/admin/categories/:categoryId	Deactivate marketplace category	Super Admin
+GET	/api/v1/admin/size-sets	List all managed Size Sets	Super Admin
+POST	/api/v1/admin/size-sets	Create a new Size Set	Super Admin
+GET	/api/v1/admin/size-sets/:sizeSetId	Get Size Set details and values	Super Admin
+PATCH	/api/v1/admin/size-sets/:sizeSetId	Update Size Set metadata	Super Admin
+POST	/api/v1/admin/size-sets/:sizeSetId/values	Add size value to Size Set	Super Admin
+PATCH	/api/v1/admin/categories/:categoryId/size-set	Assign Size Set to subcategory	Super Admin
+GET	/api/v1/categories/:categoryId/size-set	Get allowed sizes for subcategory	Public / Seller
 GET	/api/v1/sellers/me/categories/available	View categories available for request	Seller
 POST	/api/v1/sellers/me/category-requests	Request category access	Seller
 GET	/api/v1/sellers/me/category-requests	View own category requests	Seller
