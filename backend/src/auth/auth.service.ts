@@ -33,8 +33,6 @@ export class AuthService {
     });
     
     const verificationToken = randomBytes(32).toString('hex');
-    const isCustomer = dto.accountType === 'CUSTOMER';
-    const shouldAutoActivate = isCustomer || process.env.NODE_ENV !== 'production';
 
     const user = await this.prisma.user.create({
       data: {
@@ -43,21 +41,19 @@ export class AuthService {
         passwordHash: await bcrypt.hash(dto.password, 12),
         accountType: dto.accountType,
         roleId: role.id,
-        accountStatus: shouldAutoActivate ? AccountStatus.ACTIVE : AccountStatus.PENDING,
-        emailVerified: shouldAutoActivate,
-        emailVerificationHash: shouldAutoActivate ? null : hashToken(verificationToken),
-        emailVerificationExpiresAt: shouldAutoActivate ? null : daysFromNow(1),
+        accountStatus: AccountStatus.PENDING,
+        emailVerified: false,
+        emailVerificationHash: hashToken(verificationToken),
+        emailVerificationExpiresAt: daysFromNow(1),
       },
     });
 
-    if (!shouldAutoActivate) {
-      await this.emailService.sendVerificationEmail(user.email, verificationToken, user.fullName);
-    }
+    await this.emailService.sendVerificationEmail(user.email, verificationToken, user.fullName);
 
     return { 
       userId: user.id, 
       status: user.accountStatus, 
-      message: shouldAutoActivate ? 'Account registered successfully.' : 'Verification instructions have been sent.' 
+      message: 'Verification instructions have been sent.' 
     };
   }
 
