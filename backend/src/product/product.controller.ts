@@ -15,6 +15,7 @@ import {
 } from '@nestjs/common';
 import { AuthGuard, AuthenticatedRequest } from '../auth/auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
 import { ProductService } from './product.service';
 import {
   CreateProductDto,
@@ -45,6 +46,7 @@ export class ProductController {
 
   @Get('sellers/me/products')
   @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
   async getOwnProducts(
     @Req() req: AuthenticatedRequest,
     @Query() query: ProductQueryDto,
@@ -54,6 +56,7 @@ export class ProductController {
 
   @Post('sellers/me/products')
   @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
   @HttpCode(HttpStatus.CREATED)
   async createProduct(
     @Req() req: AuthenticatedRequest,
@@ -64,6 +67,7 @@ export class ProductController {
 
   @Get('sellers/me/products/:productId')
   @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
   async getOwnProduct(
     @Req() req: AuthenticatedRequest,
     @Param('productId') productId: string,
@@ -73,6 +77,7 @@ export class ProductController {
 
   @Patch('sellers/me/products/:productId')
   @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
   async updateProduct(
     @Req() req: AuthenticatedRequest,
     @Param('productId') productId: string,
@@ -83,6 +88,7 @@ export class ProductController {
 
   @Post('sellers/me/products/:productId/duplicate')
   @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
   @HttpCode(HttpStatus.CREATED)
   async duplicateProduct(
     @Req() req: AuthenticatedRequest,
@@ -94,6 +100,7 @@ export class ProductController {
 
   @Post('sellers/me/products/:productId/pause')
   @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
   @HttpCode(HttpStatus.OK)
   async pauseProduct(
     @Req() req: AuthenticatedRequest,
@@ -104,6 +111,7 @@ export class ProductController {
 
   @Post('sellers/me/products/:productId/activate')
   @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
   @HttpCode(HttpStatus.OK)
   async activateProduct(
     @Req() req: AuthenticatedRequest,
@@ -114,6 +122,7 @@ export class ProductController {
 
   @Post('sellers/me/products/:productId/hide')
   @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
   @HttpCode(HttpStatus.OK)
   async hideProduct(
     @Req() req: AuthenticatedRequest,
@@ -124,6 +133,7 @@ export class ProductController {
 
   @Delete('sellers/me/products/:productId')
   @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
   async deleteProduct(
     @Req() req: AuthenticatedRequest,
     @Param('productId') productId: string,
@@ -135,6 +145,7 @@ export class ProductController {
 
   @Get('sellers/me/products/:productId/images')
   @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
   async getProductImages(
     @Req() req: AuthenticatedRequest,
     @Param('productId') productId: string,
@@ -144,6 +155,7 @@ export class ProductController {
 
   @Post('sellers/me/products/:productId/images')
   @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
   @HttpCode(HttpStatus.CREATED)
   async addProductImage(
     @Req() req: AuthenticatedRequest,
@@ -155,6 +167,7 @@ export class ProductController {
 
   @Delete('sellers/me/products/:productId/images/:imageId')
   @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
   async removeProductImage(
     @Req() req: AuthenticatedRequest,
     @Param('productId') productId: string,
@@ -165,6 +178,7 @@ export class ProductController {
 
   @Get('sellers/me/products/:productId/specifications')
   @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
   async getProductSpecifications(
     @Req() req: AuthenticatedRequest,
     @Param('productId') productId: string,
@@ -174,6 +188,7 @@ export class ProductController {
 
   @Put('sellers/me/products/:productId/specifications')
   @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
   async setProductSpecifications(
     @Req() req: AuthenticatedRequest,
     @Param('productId') productId: string,

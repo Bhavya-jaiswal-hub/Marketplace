@@ -30,6 +30,7 @@ export class OrderController {
   // ================= CUSTOMER CHECKOUT & ORDERS =================
 
   @Post('checkout')
+  @Roles('CUSTOMER')
   @HttpCode(HttpStatus.CREATED)
   async initiateCheckout(
     @Req() req: AuthenticatedRequest,
@@ -39,6 +40,7 @@ export class OrderController {
   }
 
   @Get('orders')
+  @Roles('CUSTOMER')
   async listCustomerOrders(
     @Req() req: AuthenticatedRequest,
     @Query() query: OrderQueryDto,
@@ -47,6 +49,7 @@ export class OrderController {
   }
 
   @Get('orders/:orderId')
+  @Roles('CUSTOMER')
   async getCustomerOrder(
     @Req() req: AuthenticatedRequest,
     @Param('orderId') orderId: string,
@@ -55,6 +58,7 @@ export class OrderController {
   }
 
   @Post('orders/:orderId/cancel')
+  @Roles('CUSTOMER')
   @HttpCode(HttpStatus.OK)
   async cancelOrder(
     @Req() req: AuthenticatedRequest,
@@ -67,6 +71,7 @@ export class OrderController {
   // ================= SELLER ORDER FULFILLMENT =================
 
   @Get('sellers/me/orders')
+  @Roles('SELLER')
   async listSellerOrders(
     @Req() req: AuthenticatedRequest,
     @Query() query: OrderQueryDto,
@@ -75,6 +80,7 @@ export class OrderController {
   }
 
   @Patch('sellers/me/orders/:orderId/items/:orderItemId/status')
+  @Roles('SELLER')
   async updateSellerOrderItemStatus(
     @Req() req: AuthenticatedRequest,
     @Param('orderId') orderId: string,

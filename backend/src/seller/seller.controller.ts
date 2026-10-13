@@ -38,6 +38,7 @@ export class SellerController {
   // ================= SELLER ONBOARDING & PROFILE =================
 
   @Post('sellers')
+  @Roles('SELLER')
   @HttpCode(HttpStatus.CREATED)
   async createSellerProfile(
     @Req() req: AuthenticatedRequest,
@@ -47,11 +48,13 @@ export class SellerController {
   }
 
   @Get('sellers/me')
+  @Roles('SELLER')
   async getOwnProfile(@Req() req: AuthenticatedRequest): Promise<any> {
     return this.sellerService.getOwnProfile(req.user.sub);
   }
 
   @Patch('sellers/me')
+  @Roles('SELLER')
   async updateOwnProfile(
     @Req() req: AuthenticatedRequest,
     @Body() dto: UpdateSellerProfileDto,
@@ -60,11 +63,13 @@ export class SellerController {
   }
 
   @Get('sellers/me/status')
+  @Roles('SELLER')
   async getStatus(@Req() req: AuthenticatedRequest): Promise<any> {
     return this.sellerService.getStatus(req.user.sub);
   }
 
   @Post('sellers/me/verification/resubmit')
+  @Roles('SELLER')
   @HttpCode(HttpStatus.OK)
   async resubmitVerification(@Req() req: AuthenticatedRequest): Promise<any> {
     return this.sellerService.resubmitVerification(req.user.sub);
@@ -73,11 +78,13 @@ export class SellerController {
   // ================= SELLER ADDRESSES =================
 
   @Get('sellers/me/addresses')
+  @Roles('SELLER')
   async getAddresses(@Req() req: AuthenticatedRequest): Promise<any> {
     return this.sellerService.getAddresses(req.user.sub);
   }
 
   @Post('sellers/me/addresses')
+  @Roles('SELLER')
   @HttpCode(HttpStatus.CREATED)
   async addAddress(
     @Req() req: AuthenticatedRequest,
@@ -87,6 +94,7 @@ export class SellerController {
   }
 
   @Get('sellers/me/addresses/:addressId')
+  @Roles('SELLER')
   async getAddress(
     @Req() req: AuthenticatedRequest,
     @Param('addressId') addressId: string,
@@ -95,6 +103,7 @@ export class SellerController {
   }
 
   @Patch('sellers/me/addresses/:addressId')
+  @Roles('SELLER')
   async updateAddress(
     @Req() req: AuthenticatedRequest,
     @Param('addressId') addressId: string,
@@ -104,6 +113,7 @@ export class SellerController {
   }
 
   @Delete('sellers/me/addresses/:addressId')
+  @Roles('SELLER')
   async deleteAddress(
     @Req() req: AuthenticatedRequest,
     @Param('addressId') addressId: string,
@@ -114,11 +124,13 @@ export class SellerController {
   // ================= SELLER DOCUMENTS =================
 
   @Get('sellers/me/documents')
+  @Roles('SELLER')
   async getOwnDocuments(@Req() req: AuthenticatedRequest): Promise<any> {
     return this.sellerService.getOwnDocuments(req.user.sub);
   }
 
   @Post('sellers/me/documents')
+  @Roles('SELLER')
   @HttpCode(HttpStatus.CREATED)
   async submitDocument(
     @Req() req: AuthenticatedRequest,

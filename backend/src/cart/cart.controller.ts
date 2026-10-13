@@ -12,11 +12,14 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard, AuthenticatedRequest } from '../auth/auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
 import { CartService } from './cart.service';
 import { AddToCartDto, UpdateCartItemDto } from './dto';
 
 @Controller('cart')
-@UseGuards(AuthGuard)
+@UseGuards(AuthGuard, RolesGuard)
+@Roles('CUSTOMER')
 export class CartController {
   constructor(private readonly cartService: CartService) {}
 

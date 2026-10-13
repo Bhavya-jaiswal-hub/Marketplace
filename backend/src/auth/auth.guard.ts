@@ -3,7 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma.service';
 
 export interface AuthenticatedRequest {
-  user: { sub: string; role: string; sessionId: string };
+  user: { sub: string; role: string; roleName?: string; sessionId: string };
 }
 
 @Injectable()
@@ -18,7 +18,12 @@ export class AuthGuard implements CanActivate {
     }
 
     try {
-      request.user = this.jwtService.verify(authorization.substring(7));
+      const payload = this.jwtService.verify(authorization.substring(7));
+      request.user = {
+        ...payload,
+        role: payload.role || payload.roleName,
+        roleName: payload.roleName || payload.role,
+      };
       const session = await this.prisma.session.findFirst({ where: { id: request.user.sessionId, userId: request.user.sub, status: 'ACTIVE', expiresAt: { gt: new Date() } } });
       if (!session) throw new UnauthorizedException('Session is no longer active');
       return true;

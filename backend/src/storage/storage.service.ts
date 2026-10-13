@@ -19,18 +19,27 @@ export interface StoredFileResult {
   fileSize: number;
 }
 
+export interface IStorageService {
+  validateFile(mimeType: string, fileSize: number): void;
+  uploadVerificationDocument(options: UploadFileOptions): Promise<StoredFileResult>;
+  getFileBuffer(fileKey: string): Promise<{ buffer: Buffer; mimeType?: string }>;
+  generateSecureDownloadUrl(sellerId: string, documentId: string, expiresInMinutes?: number): string;
+  verifyDownloadSignature(sellerId: string, documentId: string, expires: number, signature: string): boolean;
+}
+
 const ALLOWED_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
 
 @Injectable()
-export class StorageService {
+export class StorageService implements IStorageService {
   private readonly logger = new Logger(StorageService.name);
   private readonly localStorageDir: string;
   private readonly appUrl: string;
 
   constructor(private readonly configService: ConfigService) {
     this.appUrl = this.configService.get<string>('APP_URL') || 'http://localhost:3000';
-    this.localStorageDir = path.resolve(process.cwd(), 'storage_private');
+    const configDir = this.configService.get<string>('STORAGE_BASE_DIR') || process.env.STORAGE_BASE_DIR;
+    this.localStorageDir = configDir ? path.resolve(configDir) : path.resolve(process.cwd(), 'storage_private');
     if (!fs.existsSync(this.localStorageDir)) {
       fs.mkdirSync(this.localStorageDir, { recursive: true });
     }

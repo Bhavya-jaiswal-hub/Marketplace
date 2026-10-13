@@ -15,7 +15,7 @@ import { AuthGuard, AuthenticatedRequest } from '../auth/auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 
-@Controller('api/v1')
+@Controller()
 @UseGuards(AuthGuard, RolesGuard)
 export class ReportingController {
   constructor(private readonly reportingService: ReportingService) {}

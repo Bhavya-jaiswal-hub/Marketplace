@@ -12,11 +12,21 @@ import { SellerService } from '../src/seller/seller.service';
 import { AuditService } from '../src/audit/audit.service';
 import { StorageService } from '../src/storage/storage.service';
 import { ForbiddenException, BadRequestException } from '@nestjs/common';
+import * as os from 'os';
+import * as path from 'path';
+import * as fs from 'fs';
 
 describe('Seller Onboarding & Admin Verification Flow Integration', () => {
   let sellerService: SellerService;
   let auditService: AuditService;
   let storageService: StorageService;
+  const testStorageDir = path.join(os.tmpdir(), `seller-flow-storage-${Date.now()}-${Math.random()}`);
+
+  afterAll(() => {
+    if (fs.existsSync(testStorageDir)) {
+      fs.rmSync(testStorageDir, { recursive: true, force: true });
+    }
+  });
 
   // In-memory relational state
   const db = {
@@ -40,6 +50,7 @@ describe('Seller Onboarding & Admin Verification Flow Integration', () => {
       get: jest.fn((k: string) => {
         if (k === 'APP_URL') return 'http://localhost:3000';
         if (k === 'JWT_ACCESS_SECRET') return 'integration-test-secret-key-32-chars';
+        if (k === 'STORAGE_BASE_DIR') return testStorageDir;
         return null;
       }),
     } as unknown as ConfigService;
@@ -237,11 +248,11 @@ describe('Seller Onboarding & Admin Verification Flow Integration', () => {
 
     expect(createRes.success).toBe(true);
     const sellerId = createRes.data.seller.id;
-    expect(createRes.data.seller.status).toBe(SellerStatus.PENDING);
+    expect(createRes.data.seller.status).toBe(SellerStatus.PENDING_APPROVAL);
 
     // Verify initial verification created
     const statusRes = await sellerService.getStatus(sellerUserId);
-    expect(statusRes.data.status).toBe(SellerStatus.PENDING);
+    expect(statusRes.data.status).toBe(SellerStatus.PENDING_APPROVAL);
     expect(statusRes.data.latestVerification.submissionNumber).toBe(1);
 
     // 3. Seller adds Pickup Address

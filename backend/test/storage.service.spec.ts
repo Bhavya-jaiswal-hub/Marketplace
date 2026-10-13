@@ -1,16 +1,27 @@
 import { ConfigService } from '@nestjs/config';
 import { StorageService } from '../src/storage/storage.service';
 import { BadRequestException } from '@nestjs/common';
+import * as os from 'os';
+import * as path from 'path';
+import * as fs from 'fs';
 
 describe('StorageService', () => {
   let service: StorageService;
   let configService: Partial<ConfigService>;
+  const testStorageDir = path.join(os.tmpdir(), `test-storage-${Date.now()}-${Math.random()}`);
+
+  afterAll(() => {
+    if (fs.existsSync(testStorageDir)) {
+      fs.rmSync(testStorageDir, { recursive: true, force: true });
+    }
+  });
 
   beforeEach(() => {
     configService = {
       get: jest.fn().mockImplementation((key: string) => {
         if (key === 'APP_URL') return 'http://localhost:3000';
         if (key === 'JWT_ACCESS_SECRET') return 'test-secret-key-storage-32-chars';
+        if (key === 'STORAGE_BASE_DIR') return testStorageDir;
         return null;
       }),
     };

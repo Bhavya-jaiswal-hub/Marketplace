@@ -48,12 +48,14 @@ export class CategoryController {
 
   @Get('sellers/me/categories/available')
   @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
   async getAvailableCategories(@Req() req: AuthenticatedRequest): Promise<any> {
     return this.categoryService.getAvailableCategories(req.user.sub);
   }
 
   @Post('sellers/me/category-requests')
   @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
   @HttpCode(HttpStatus.CREATED)
   async requestCategories(
     @Req() req: AuthenticatedRequest,
@@ -64,12 +66,14 @@ export class CategoryController {
 
   @Get('sellers/me/category-requests')
   @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
   async getOwnCategoryRequests(@Req() req: AuthenticatedRequest): Promise<any> {
     return this.categoryService.getOwnCategoryRequests(req.user.sub);
   }
 
   @Get('sellers/me/categories')
   @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
   async getOwnApprovedCategories(@Req() req: AuthenticatedRequest): Promise<any> {
     return this.categoryService.getOwnApprovedCategories(req.user.sub);
   }
