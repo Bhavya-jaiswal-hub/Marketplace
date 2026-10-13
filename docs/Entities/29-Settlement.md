@@ -50,11 +50,20 @@ Settlement Management
 | `payout_amount` | Numeric(10, 2) | No | Actual disbursed amount ($\max(0, \text{net\_calculated\_amount})$) |
 | `carried_forward_debit_balance` | Numeric(10, 2) | No | New shortfall debit created if $\text{net\_calculated\_amount} < 0$ (otherwise 0) |
 | `bank_transaction_reference` | String(100) | Yes | Mandatory external bank/UPI reference number (required if payout > 0) |
-| `status` | Enum | No | Settlement status: `Calculated`, `Settled` |
+| `status` | Enum (`SettlementBatchStatus`) | No | Batch status: `GENERATED`, `APPROVED`, `SETTLED`, `CANCELLED` |
 | `settled_at` | Timestamp | Yes | Timestamp when Super Admin entered reference and locked record |
 | `settled_by_admin_id` | UUID | Yes | Super Admin who executed the settlement run |
 | `created_at` | Timestamp | No | Record creation timestamp |
 | `updated_at` | Timestamp | No | Last modification timestamp |
+
+## Settlement Batch Statuses (SRS Section 8.5 & Resolution Decisions)
+
+The Settlement entity strictly conforms to the `SettlementBatchStatus` lifecycle in `UPPER_SNAKE_CASE`:
+
+- **`GENERATED`**: Batch calculated and previewed by Super Admin; includes eligible items and candidate adjustments.
+- **`APPROVED`**: Super Admin approved figures for payment disbursement.
+- **`SETTLED`**: Super Admin entered external bank transaction reference; permanently immutable. Child items become `SETTLED`.
+- **`CANCELLED`**: Batch discarded prior to disbursement; releases linked items back to `ELIGIBLE` status.
 
 ## Net Payable Calculation Formula (SRS FR-12, BR-12)
 

@@ -121,18 +121,20 @@ Identity & Access Management (User, Role, Session, RefreshToken, PasswordResetTo
 
 # 5. Standardized Status Enumerations (Single Source of Truth)
 
-All database column enums must match **SRS Section 8** exactly:
+All database column enums conform strictly to **SRS Section 8** formatted in `UPPER_SNAKE_CASE` (spaces and hyphens converted to underscores; non-SRS values removed):
 
-| Status Group | SRS Section | Permitted Database Enum Values |
+| Status Group / Enum Name | SRS Section | Permitted Database Enum Values (`UPPER_SNAKE_CASE`) |
 |---|---|---|
-| **Order Item Status** | Section 8.1 | `Placed`, `Packed`, `Shipped`, `Delivered`, `Cancelled`, `Not Received - Under Dispute` |
-| **Parent Order Status** | Section 8.2 | `Placed`, `Partially Shipped`, `Partially Delivered`, `Delivered`, `Partially Cancelled`, `Cancelled`, `Under Dispute` |
-| **Return Status** | Section 8.3 | `Requested`, `Approved`, `Rejected`, `In Transit`, `Received`, `Verified`, `Rejected on Inspection`, `Refunded` |
-| **Payment Status** | Section 8.4 | `Pending`, `Paid`, `Failed`, `Partially Refunded`, `Refunded` |
-| **Settlement Item Status** | Section 8.5 | `Not Eligible`, `Eligible`, `Settled` |
-| **Seller Account Status** | Section 8.6 | `Pending Approval`, `Approved`, `Rejected`, `Suspended`, `Blocked` |
-| **Product Visibility Status** | Section 8.7 | `Active`, `Paused`, `Hidden`, `Soft-Deleted`, `Removed by Admin` |
-| **Category Permission Status** | Section 8.8 | `Requested`, `Approved`, `Rejected`, `Revoked` |
+| **`OrderItemStatus`** | Section 8.1 | `PLACED`, `PACKED`, `SHIPPED`, `DELIVERED`, `CANCELLED`, `NOT_RECEIVED_UNDER_DISPUTE` |
+| **`OrderStatus`** | Section 8.2 | `PLACED`, `PARTIALLY_SHIPPED`, `PARTIALLY_DELIVERED`, `DELIVERED`, `PARTIALLY_CANCELLED`, `CANCELLED`, `UNDER_DISPUTE` |
+| **`ReturnRequestStatus`** | Section 8.3 | `REQUESTED`, `APPROVED`, `REJECTED`, `IN_TRANSIT`, `RECEIVED`, `VERIFIED`, `REJECTED_ON_INSPECTION`, `REFUNDED` |
+| **`PaymentStatus`** | Section 8.4 | `PENDING`, `PAID`, `FAILED`, `PARTIALLY_REFUNDED`, `REFUNDED` |
+| **`SettlementItemStatus`** | Section 8.5 | `NOT_ELIGIBLE`, `ELIGIBLE`, `SETTLED` |
+| **`SettlementBatchStatus`** | Section 8.5 / Resolution | `GENERATED`, `APPROVED`, `SETTLED`, `CANCELLED` |
+| **`SellerStatus`** | Section 8.6 | `PENDING_APPROVAL`, `APPROVED`, `REJECTED`, `SUSPENDED`, `BLOCKED` |
+| **`ProductStatus`** | Section 8.7 | `ACTIVE`, `PAUSED`, `HIDDEN`, `SOFT_DELETED`, `REMOVED_BY_ADMIN` |
+| **`SellerCategoryStatus`** | Section 8.8 | `REQUESTED`, `APPROVED`, `REJECTED`, `REVOKED` |
+| **`DisputeResolutionOutcome`** | Section 8.1 / FR-9 | `CUSTOMER_REFUND_UPHELD`, `DISPUTE_REJECTED` |
 
 ---
 
