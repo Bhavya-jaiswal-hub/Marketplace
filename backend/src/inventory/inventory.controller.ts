@@ -26,13 +26,44 @@ import {
 export class InventoryController {
   constructor(private readonly inventoryService: InventoryService) {}
 
-  // ================= SELLER INVENTORY OPERATIONS =================
+  // ================= SELLER VARIANT INVENTORY OPERATIONS =================
 
   @Get('sellers/me/inventory')
   @UseGuards(AuthGuard, RolesGuard)
   @Roles('SELLER')
   async getSellerInventory(@Req() req: AuthenticatedRequest): Promise<any> {
     return this.inventoryService.getSellerInventory(req.user.sub);
+  }
+
+  @Get('sellers/me/variants/:variantId/inventory')
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
+  async getVariantInventory(
+    @Req() req: AuthenticatedRequest,
+    @Param('variantId') variantId: string,
+  ): Promise<any> {
+    return this.inventoryService.getVariantInventory(req.user.sub, variantId);
+  }
+
+  @Patch('sellers/me/variants/:variantId/inventory')
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
+  async adjustVariantStock(
+    @Req() req: AuthenticatedRequest,
+    @Param('variantId') variantId: string,
+    @Body() dto: AdjustStockDto,
+  ): Promise<any> {
+    return this.inventoryService.adjustVariantStock(req.user.sub, variantId, dto);
+  }
+
+  @Get('sellers/me/variants/:variantId/inventory/history')
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
+  async getVariantInventoryHistory(
+    @Req() req: AuthenticatedRequest,
+    @Param('variantId') variantId: string,
+  ): Promise<any> {
+    return this.inventoryService.getVariantInventoryHistory(req.user.sub, variantId);
   }
 
   @Get('sellers/me/products/:productId/inventory')
@@ -54,16 +85,6 @@ export class InventoryController {
     @Body() dto: AdjustStockDto,
   ): Promise<any> {
     return this.inventoryService.adjustStock(req.user.sub, productId, dto);
-  }
-
-  @Get('sellers/me/products/:productId/inventory/history')
-  @UseGuards(AuthGuard, RolesGuard)
-  @Roles('SELLER')
-  async getInventoryHistory(
-    @Req() req: AuthenticatedRequest,
-    @Param('productId') productId: string,
-  ): Promise<any> {
-    return this.inventoryService.getInventoryHistory(req.user.sub, productId);
   }
 
   // ================= INTERNAL WORKFLOW INTERFACES =================

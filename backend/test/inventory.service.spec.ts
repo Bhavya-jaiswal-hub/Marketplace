@@ -18,15 +18,22 @@ describe('InventoryService', () => {
       product: {
         findUnique: jest.fn(),
       },
+      productVariant: {
+        findUnique: jest.fn(),
+        findMany: jest.fn(),
+        update: jest.fn(),
+      },
       inventory: {
         findMany: jest.fn(),
         findUnique: jest.fn(),
+        create: jest.fn(),
         update: jest.fn(),
       },
       inventoryHistory: {
         create: jest.fn(),
         findMany: jest.fn(),
       },
+      $executeRaw: jest.fn(),
       $transaction: jest.fn(async (cb: any) => cb(prisma)),
     };
 
@@ -40,27 +47,40 @@ describe('InventoryService', () => {
     );
   });
 
-  describe('Stock Adjustment', () => {
-    it('sets product stock and records inventory history with delta', async () => {
-      prisma.sellerProfile.findUnique.mockResolvedValue({ id: 'seller-1', userId: 'user-1' });
-      prisma.product.findUnique.mockResolvedValue({
+  describe('Variant Stock Adjustment (FR-6, BR-5)', () => {
+    const mockVariant = {
+      id: 'var-1',
+      productId: 'prod-1',
+      sku: 'SHIRT-M-BLK',
+      size: 'M',
+      color: 'Black',
+      stockQuantity: 10,
+      lowStockThreshold: 5,
+      product: {
         id: 'prod-1',
         sellerId: 'seller-1',
         status: ProductStatus.ACTIVE,
-        inventory: {
-          id: 'inv-1',
-          availableQuantity: 10,
-          reservedQuantity: 0,
-        },
-      });
+      },
+      inventory: {
+        id: 'inv-1',
+        variantId: 'var-1',
+        availableQuantity: 10,
+        reservedQuantity: 0,
+        lowStockThreshold: 5,
+      },
+    };
+
+    it('sets variant stock and records inventory history with delta', async () => {
+      prisma.sellerProfile.findUnique.mockResolvedValue({ id: 'seller-1', userId: 'user-1' });
+      prisma.productVariant.findUnique.mockResolvedValue(mockVariant);
       prisma.inventory.update.mockResolvedValue({
         id: 'inv-1',
-        productId: 'prod-1',
+        variantId: 'var-1',
         availableQuantity: 25,
         reservedQuantity: 0,
       });
 
-      const res = await service.adjustStock('user-1', 'prod-1', {
+      const res = await service.adjustVariantStock('user-1', 'var-1', {
         quantity: 25,
         mode: StockAdjustmentMode.SET,
         reason: 'Restocking new shipment from warehouse',
@@ -70,6 +90,12 @@ describe('InventoryService', () => {
       expect(res.data.inventory.availableQuantity).toBe(25);
       expect(res.data.inventory.previousQuantity).toBe(10);
       expect(res.data.inventory.quantityChange).toBe(15);
+      expect(prisma.productVariant.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'var-1' },
+          data: expect.objectContaining({ stockQuantity: 25 }),
+        }),
+      );
       expect(prisma.inventoryHistory.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -88,10 +114,8 @@ describe('InventoryService', () => {
 
     it('rejects reduction that would cause negative inventory', async () => {
       prisma.sellerProfile.findUnique.mockResolvedValue({ id: 'seller-1', userId: 'user-1' });
-      prisma.product.findUnique.mockResolvedValue({
-        id: 'prod-1',
-        sellerId: 'seller-1',
-        status: ProductStatus.ACTIVE,
+      prisma.productVariant.findUnique.mockResolvedValue({
+        ...mockVariant,
         inventory: {
           id: 'inv-1',
           availableQuantity: 5,
@@ -99,35 +123,49 @@ describe('InventoryService', () => {
       });
 
       await expect(
-        service.adjustStock('user-1', 'prod-1', {
+        service.adjustVariantStock('user-1', 'var-1', {
           quantity: 10,
           mode: StockAdjustmentMode.REMOVE,
           reason: 'Damaged stock deduction',
         }),
       ).rejects.toThrow(BadRequestException);
     });
+
+    it('rejects adjustment if seller is not authorized', async () => {
+      prisma.sellerProfile.findUnique.mockResolvedValue({ id: 'seller-unauthorized', userId: 'user-2' });
+      prisma.productVariant.findUnique.mockResolvedValue(mockVariant);
+
+      await expect(
+        service.adjustVariantStock('user-2', 'var-1', {
+          quantity: 20,
+          reason: 'Unauthorized attempt',
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
   });
 
   describe('Reservation, Confirmation & Release Workflows', () => {
-    it('validates stock availability across items', async () => {
-      prisma.product.findUnique
+    it('validates stock availability across variant items', async () => {
+      prisma.productVariant.findUnique
         .mockResolvedValueOnce({
-          id: 'prod-1',
-          name: 'Item 1',
-          status: ProductStatus.ACTIVE,
+          id: 'var-1',
+          sku: 'SHIRT-M-BLK',
+          isActive: true,
+          product: { id: 'prod-1', name: 'Cotton Shirt', status: ProductStatus.ACTIVE, deletedAt: null },
           inventory: { availableQuantity: 10 },
         })
         .mockResolvedValueOnce({
-          id: 'prod-2',
-          name: 'Item 2',
-          status: ProductStatus.ACTIVE,
+          id: 'var-2',
+          sku: 'SHIRT-L-BLK',
+          isActive: true,
+          product: { id: 'prod-1', name: 'Cotton Shirt', status: ProductStatus.ACTIVE, deletedAt: null },
           inventory: { availableQuantity: 1 },
         });
 
       const res = await service.validateStock({
         items: [
-          { productId: 'prod-1', quantity: 2 },
-          { productId: 'prod-2', quantity: 5 }, // Insufficient
+          { variantId: 'var-1', quantity: 2 },
+          { variantId: 'var-2', quantity: 5 }, // Insufficient
         ],
       });
 
@@ -137,29 +175,35 @@ describe('InventoryService', () => {
     });
 
     it('atomically reserves stock by transferring from available to reserved quantity', async () => {
+      prisma.productVariant.findUnique
+        .mockResolvedValue({
+          id: 'var-1',
+          sku: 'SHIRT-M-BLK',
+          size: 'M',
+          color: 'Black',
+          isActive: true,
+          product: { status: ProductStatus.ACTIVE, deletedAt: null },
+          inventory: { availableQuantity: 20 },
+        });
+      prisma.$executeRaw.mockResolvedValue(1); // 1 row updated atomically
       prisma.inventory.findUnique.mockResolvedValue({
         id: 'inv-1',
-        productId: 'prod-1',
-        availableQuantity: 20,
-        reservedQuantity: 0,
-        product: { name: 'Item 1', status: ProductStatus.ACTIVE },
-      });
-      prisma.inventory.update.mockResolvedValue({
-        id: 'inv-1',
+        variantId: 'var-1',
         availableQuantity: 18,
         reservedQuantity: 2,
       });
 
       const res = await service.reserveStock({
-        reservationId: 'res-order-123',
-        items: [{ productId: 'prod-1', quantity: 2 }],
+        reservationId: 'res-chk-100',
+        items: [{ variantId: 'var-1', quantity: 2 }],
       });
 
       expect(res.success).toBe(true);
-      expect(prisma.inventory.update).toHaveBeenCalledWith(
+      expect(prisma.$executeRaw).toHaveBeenCalled();
+      expect(prisma.productVariant.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'inv-1' },
-          data: { availableQuantity: 18, reservedQuantity: 2 },
+          where: { id: 'var-1' },
+          data: { stockQuantity: 18 },
         }),
       );
       expect(prisma.inventoryHistory.create).toHaveBeenCalledWith(
@@ -167,29 +211,48 @@ describe('InventoryService', () => {
           data: expect.objectContaining({
             changeType: StockChangeType.RESERVATION_CREATED,
             quantityChange: -2,
-            referenceId: 'res-order-123',
+            reason: 'Reserved for checkout reference res-chk-100',
           }),
         }),
       );
     });
 
-    it('confirms reservation and deducts reserved quantity', async () => {
+    it('rejects reservation with 400 when atomic update affects 0 rows (concurrency conflict)', async () => {
+      prisma.productVariant.findUnique.mockResolvedValue({
+        id: 'var-1',
+        sku: 'SHIRT-M-BLK',
+        size: 'M',
+        color: 'Black',
+        isActive: true,
+        product: { status: ProductStatus.ACTIVE, deletedAt: null },
+        inventory: { availableQuantity: 1 },
+      });
+      prisma.$executeRaw.mockResolvedValue(0); // 0 rows affected due to concurrent reservation
+
+      await expect(
+        service.reserveStock({
+          reservationId: 'res-chk-101',
+          items: [{ variantId: 'var-1', quantity: 2 }],
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('confirms reservation and deducts reserved quantity on successful payment', async () => {
       prisma.inventory.findUnique.mockResolvedValue({
         id: 'inv-1',
-        productId: 'prod-1',
+        variantId: 'var-1',
         availableQuantity: 18,
         reservedQuantity: 2,
       });
 
       const res = await service.confirmReservation({
-        reservationId: 'res-order-123',
-        items: [{ productId: 'prod-1', quantity: 2 }],
+        reservationId: 'res-chk-100',
+        items: [{ variantId: 'var-1', quantity: 2 }],
       });
 
       expect(res.success).toBe(true);
       expect(prisma.inventory.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'inv-1' },
           data: { reservedQuantity: 0 },
         }),
       );
@@ -197,30 +260,34 @@ describe('InventoryService', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             changeType: StockChangeType.RESERVATION_CONFIRMED,
-            referenceId: 'res-order-123',
           }),
         }),
       );
     });
 
-    it('releases reservation and restores stock to available quantity on payment failure', async () => {
+    it('releases reservation and restores available stock on checkout expiry or abandonment', async () => {
       prisma.inventory.findUnique.mockResolvedValue({
         id: 'inv-1',
-        productId: 'prod-1',
+        variantId: 'var-1',
         availableQuantity: 18,
         reservedQuantity: 2,
       });
 
       const res = await service.releaseReservation({
-        reservationId: 'res-order-123',
-        items: [{ productId: 'prod-1', quantity: 2 }],
+        reservationId: 'res-chk-100',
+        items: [{ variantId: 'var-1', quantity: 2 }],
       });
 
       expect(res.success).toBe(true);
       expect(prisma.inventory.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'inv-1' },
           data: { availableQuantity: 20, reservedQuantity: 0 },
+        }),
+      );
+      expect(prisma.productVariant.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'var-1' },
+          data: { stockQuantity: 20 },
         }),
       );
       expect(prisma.inventoryHistory.create).toHaveBeenCalledWith(
@@ -228,7 +295,36 @@ describe('InventoryService', () => {
           data: expect.objectContaining({
             changeType: StockChangeType.RESERVATION_RELEASED,
             quantityChange: 2,
-            referenceId: 'res-order-123',
+          }),
+        }),
+      );
+    });
+
+    it('restocks accepted return into variant inventory', async () => {
+      prisma.inventory.findUnique.mockResolvedValue({
+        id: 'inv-1',
+        variantId: 'var-1',
+        availableQuantity: 20,
+      });
+      prisma.inventory.update.mockResolvedValue({
+        id: 'inv-1',
+        variantId: 'var-1',
+        availableQuantity: 21,
+      });
+
+      const res = await service.restockReturnedProduct('var-1', 1, 'ret-req-1', 'admin-1');
+      expect(res.success).toBe(true);
+      expect(prisma.inventory.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { availableQuantity: 21 },
+        }),
+      );
+      expect(prisma.inventoryHistory.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            changeType: StockChangeType.RETURN_RESTOCK,
+            quantityChange: 1,
+            newQuantity: 21,
           }),
         }),
       );

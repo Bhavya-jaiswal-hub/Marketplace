@@ -36,12 +36,22 @@ export class AdjustStockDto {
   @IsString()
   @IsOptional()
   referenceId?: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  lowStockThreshold?: number;
 }
 
 export class StockItemDto {
   @IsUUID()
   @IsNotEmpty()
-  productId!: string;
+  variantId!: string;
+
+  @IsUUID()
+  @IsOptional()
+  productId?: string;
 
   @Type(() => Number)
   @IsInt()
