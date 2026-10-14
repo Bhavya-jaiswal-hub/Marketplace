@@ -24,6 +24,9 @@ import {
   ProductQueryDto,
   SetSpecificationsDto,
   UpdateProductDto,
+  CreateProductVariantDto,
+  UpdateProductVariantDto,
+  AdminTakedownDto,
 } from './dto';
 
 @Controller()
@@ -195,5 +198,66 @@ export class ProductController {
     @Body() dto: SetSpecificationsDto,
   ): Promise<any> {
     return this.productService.setProductSpecifications(req.user.sub, productId, dto);
+  }
+
+  // ================= PRODUCT VARIANTS (SIZE X COLOR) =================
+
+  @Post('sellers/me/products/:productId/variants')
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
+  @HttpCode(HttpStatus.CREATED)
+  async createProductVariant(
+    @Req() req: AuthenticatedRequest,
+    @Param('productId') productId: string,
+    @Body() dto: CreateProductVariantDto,
+  ): Promise<any> {
+    return this.productService.createProductVariant(req.user.sub, productId, dto);
+  }
+
+  @Get('sellers/me/products/:productId/variants')
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
+  async getProductVariants(
+    @Req() req: AuthenticatedRequest,
+    @Param('productId') productId: string,
+  ): Promise<any> {
+    return this.productService.getProductVariants(req.user.sub, productId);
+  }
+
+  @Patch('sellers/me/products/:productId/variants/:variantId')
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
+  async updateProductVariant(
+    @Req() req: AuthenticatedRequest,
+    @Param('productId') productId: string,
+    @Param('variantId') variantId: string,
+    @Body() dto: UpdateProductVariantDto,
+  ): Promise<any> {
+    return this.productService.updateProductVariant(req.user.sub, productId, variantId, dto);
+  }
+
+  @Delete('sellers/me/products/:productId/variants/:variantId')
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
+  async deleteProductVariant(
+    @Req() req: AuthenticatedRequest,
+    @Param('productId') productId: string,
+    @Param('variantId') variantId: string,
+  ): Promise<any> {
+    return this.productService.deleteProductVariant(req.user.sub, productId, variantId);
+  }
+
+  // ================= ADMIN PRODUCT MODERATION TAKEDOWN =================
+
+  @Post('admin/products/:productId/takedown')
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SUPER_ADMIN', 'ADMIN')
+  @HttpCode(HttpStatus.OK)
+  async takedownProduct(
+    @Req() req: AuthenticatedRequest,
+    @Param('productId') productId: string,
+    @Body() dto: AdminTakedownDto,
+  ): Promise<any> {
+    return this.productService.takedownProduct(req.user.sub, productId, dto);
   }
 }
