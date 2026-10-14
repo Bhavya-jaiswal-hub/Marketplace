@@ -50,7 +50,7 @@ export class OrderService {
       );
     }
 
-    // Retrieve active cart
+    // Retrieve active cart with variants and products
     const cart = await this.prisma.cart.findFirst({
       where: {
         customerId: customer.id,
@@ -61,7 +61,6 @@ export class OrderService {
           include: {
             product: {
               include: {
-                inventory: true,
                 category: {
                   include: {
                     commissions: {
@@ -71,6 +70,11 @@ export class OrderService {
                     },
                   },
                 },
+              },
+            },
+            variant: {
+              include: {
+                inventory: true,
               },
             },
           },
@@ -104,19 +108,27 @@ export class OrderService {
       }
     }
 
-    // Validate each cart item and inventory
+    // Validate each cart item and variant inventory
     for (const item of cart.items) {
       const product = item.product;
+      const variant = item.variant;
+
+      if (!variant || !variant.isActive) {
+        throw new BadRequestException(
+          `Product variant for "${product.name}" is no longer active`,
+        );
+      }
+
       if (product.deletedAt || product.status !== ProductStatus.ACTIVE) {
         throw new BadRequestException(
           `Product "${product.name}" is no longer available for purchase`,
         );
       }
 
-      const availableStock = product.inventory?.availableQuantity ?? 0;
+      const availableStock = variant.inventory?.availableQuantity ?? variant.stockQuantity ?? 0;
       if (availableStock < item.quantity) {
         throw new BadRequestException(
-          `Insufficient stock for "${product.name}". Available: ${availableStock}, Requested: ${item.quantity}`,
+          `Insufficient stock for "${product.name}" (${variant.size} / ${variant.color}). Available: ${availableStock}, Requested: ${item.quantity}`,
         );
       }
     }
@@ -126,35 +138,82 @@ export class OrderService {
     const providerOrderReference = `order_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes expiration
 
-    // Atomically reserve inventory for all items in batch
+    // Atomically reserve inventory for all items in batch using variantId
     await this.inventoryService.reserveStock({
       reservationId: orderNumber,
       items: cart.items.map((item) => ({
-        productId: item.productId,
+        variantId: item.variantId,
         quantity: item.quantity,
       })),
     });
 
-    // Calculate item and order totals
+    // Group items by seller for platform shipping fee calculation (FR-8)
+    const sellerItemsMap = new Map<string, any[]>();
+    for (const item of cart.items) {
+      const sId = item.product.sellerId;
+      if (!sellerItemsMap.has(sId)) sellerItemsMap.set(sId, []);
+      sellerItemsMap.get(sId)!.push(item);
+    }
+
+    const FLAT_FEE_PER_SELLER = 79.0;
+    const FREE_SHIPPING_THRESHOLD = 999.0;
+
+    let totalShippingAmount = 0;
+    const sellerShippingMap = new Map<string, number>();
+
+    for (const [sellerId, items] of sellerItemsMap.entries()) {
+      const sellerSubtotal = items.reduce((sum, item) => {
+        const unitPrice = item.variant?.priceOverride
+          ? Number(item.variant.priceOverride)
+          : Number(item.product.price);
+        return sum + unitPrice * item.quantity;
+      }, 0);
+
+      const fee = sellerSubtotal >= FREE_SHIPPING_THRESHOLD ? 0 : FLAT_FEE_PER_SELLER;
+      sellerShippingMap.set(sellerId, fee);
+      totalShippingAmount += fee;
+    }
+
+    // Calculate item and order totals with snapshots
     let orderSubtotal = 0;
     const orderItemsData = cart.items.map((item) => {
       const product = item.product;
-      const unitPrice = Number(product.price);
+      const variant = item.variant;
+      const unitPrice = variant?.priceOverride
+        ? Number(variant.priceOverride)
+        : Number(product.price);
       const subtotal = unitPrice * item.quantity;
+      orderSubtotal += subtotal;
+
+      // Item shipping share within its seller shipment
+      const sellerItems = sellerItemsMap.get(product.sellerId) || [];
+      const sellerFee = sellerShippingMap.get(product.sellerId) || 0;
+      const sellerSubtotal = sellerItems.reduce((sum, it) => {
+        const up = it.variant?.priceOverride
+          ? Number(it.variant.priceOverride)
+          : Number(it.product.price);
+        return sum + up * it.quantity;
+      }, 0);
+      const shippingFeeShare =
+        sellerSubtotal > 0 ? Number(((subtotal / sellerSubtotal) * sellerFee).toFixed(2)) : 0;
+
       const commissionRate =
         product.category?.commissions?.[0]?.commissionRate !== undefined
           ? Number(product.category.commissions[0].commissionRate)
           : 0.0;
       const commissionAmount = Number(((subtotal * commissionRate) / 100).toFixed(2));
-      const sellerEarnings = Number((subtotal - commissionAmount).toFixed(2));
-
-      orderSubtotal += subtotal;
+      const sellerEarnings = Number((subtotal - commissionAmount + shippingFeeShare).toFixed(2));
 
       return {
         productId: product.id,
+        variantId: variant.id,
         sellerId: product.sellerId,
         productName: product.name,
-        sku: product.sku,
+        sku: variant.sku,
+        productNameSnapshot: product.name,
+        skuSnapshot: variant.sku,
+        sizeSnapshot: variant.size,
+        colorSnapshot: variant.color,
         unitPrice,
         quantity: item.quantity,
         subtotal,
@@ -163,8 +222,9 @@ export class OrderService {
         totalAmount: subtotal,
         commissionRate,
         commissionAmount,
+        shippingFeeShare,
         sellerEarnings,
-        status: OrderItemStatus.PENDING,
+        status: OrderItemStatus.PLACED,
       };
     });
 
@@ -180,6 +240,8 @@ export class OrderService {
       addressType: shippingAddress.addressType,
     };
 
+    const totalAmount = Number((orderSubtotal + totalShippingAmount).toFixed(2));
+
     // Create Order and items
     const order = await this.prisma.order.create({
       data: {
@@ -187,20 +249,20 @@ export class OrderService {
         orderNumber,
         shippingAddressId: shippingAddress.id,
         shippingAddressSnapshot,
-        orderStatus: OrderStatus.PENDING,
+        orderStatus: OrderStatus.PLACED,
         paymentStatus: PaymentStatus.PENDING,
         currency: 'INR',
         subtotal: orderSubtotal,
-        shippingAmount: 0,
+        shippingAmount: totalShippingAmount,
         discountAmount: 0,
         taxAmount: 0,
-        totalAmount: orderSubtotal,
+        totalAmount,
         orderItems: {
           create: orderItemsData.map((item) => ({
             ...item,
             history: {
               create: {
-                newStatus: OrderItemStatus.PENDING,
+                newStatus: OrderItemStatus.PLACED,
                 eventType: 'Created',
                 reason: 'Order placed by customer',
                 changedBy: userId,
@@ -218,7 +280,7 @@ export class OrderService {
         customerId: customer.id,
         paymentReference,
         providerOrderReference,
-        amount: orderSubtotal,
+        amount: totalAmount,
         currency: 'INR',
         status: PaymentStatus.PENDING,
         attemptNumber: 1,
@@ -239,7 +301,7 @@ export class OrderService {
       resourceId: order.id,
       newValue: {
         orderNumber,
-        totalAmount: orderSubtotal,
+        totalAmount,
         itemCount: orderItemsData.length,
       },
     });
@@ -251,7 +313,7 @@ export class OrderService {
         orderNumber,
         paymentReference,
         providerOrderReference,
-        amount: orderSubtotal,
+        amount: totalAmount,
         currency: 'INR',
         expiresAt,
       },
@@ -375,8 +437,7 @@ export class OrderService {
 
     if (
       order.orderStatus === OrderStatus.CANCELLED ||
-      order.orderStatus === OrderStatus.DELIVERED ||
-      order.orderStatus === OrderStatus.RETURNED
+      order.orderStatus === OrderStatus.DELIVERED
     ) {
       throw new BadRequestException(
         `Order in status "${order.orderStatus}" cannot be cancelled`,
@@ -432,6 +493,7 @@ export class OrderService {
       await this.inventoryService.releaseReservation({
         reservationId: order.orderNumber,
         items: itemsToCancel.map((i) => ({
+          variantId: i.variantId,
           productId: i.productId,
           quantity: i.quantity,
         })),
@@ -568,14 +630,14 @@ export class OrderService {
       throw new NotFoundException('Order item not found for this seller');
     }
 
-    // Validate status transitions
+    // Validate status transitions per SRS Section 8.1
     const validTransitions: Record<string, string[]> = {
-      [OrderItemStatus.PENDING]: [OrderItemStatus.CONFIRMED, OrderItemStatus.CANCELLED],
-      [OrderItemStatus.CONFIRMED]: [OrderItemStatus.PROCESSING, OrderItemStatus.CANCELLED],
-      [OrderItemStatus.PROCESSING]: [OrderItemStatus.SHIPPED, OrderItemStatus.CANCELLED],
+      [OrderItemStatus.PLACED]: [OrderItemStatus.PACKED, OrderItemStatus.CANCELLED],
+      [OrderItemStatus.PACKED]: [OrderItemStatus.SHIPPED, OrderItemStatus.CANCELLED],
       [OrderItemStatus.SHIPPED]: [OrderItemStatus.DELIVERED],
-      [OrderItemStatus.DELIVERED]: [],
+      [OrderItemStatus.DELIVERED]: [OrderItemStatus.NOT_RECEIVED_UNDER_DISPUTE],
       [OrderItemStatus.CANCELLED]: [],
+      [OrderItemStatus.NOT_RECEIVED_UNDER_DISPUTE]: [],
     };
 
     const allowed = validTransitions[item.status] || [];
@@ -619,34 +681,16 @@ export class OrderService {
       },
     });
 
-    // Check if overall parent Order status can be updated
+    // Check if overall parent Order status can be updated per SRS Section 8.2
     const allOrderItems = await this.prisma.orderItem.findMany({
       where: { orderId },
     });
 
-    if (allOrderItems.every((i) => i.status === OrderItemStatus.DELIVERED)) {
-      await this.prisma.order.update({
-        where: { id: orderId },
-        data: { orderStatus: OrderStatus.DELIVERED },
-      });
-    } else if (allOrderItems.every((i) => i.status === OrderItemStatus.SHIPPED)) {
-      await this.prisma.order.update({
-        where: { id: orderId },
-        data: { orderStatus: OrderStatus.SHIPPED },
-      });
-    } else if (
-      allOrderItems.every(
-        (i) =>
-          i.status === OrderItemStatus.PROCESSING ||
-          i.status === OrderItemStatus.SHIPPED ||
-          i.status === OrderItemStatus.DELIVERED,
-      )
-    ) {
-      await this.prisma.order.update({
-        where: { id: orderId },
-        data: { orderStatus: OrderStatus.PROCESSING },
-      });
-    }
+    const derivedStatus = this.deriveOrderStatus(allOrderItems);
+    await this.prisma.order.update({
+      where: { id: orderId },
+      data: { orderStatus: derivedStatus },
+    });
 
     await this.audit.logAction({
       userId,
@@ -766,4 +810,38 @@ export class OrderService {
       data: order,
     };
   }
+
+  deriveOrderStatus(items: Array<{ status: OrderItemStatus }>): OrderStatus {
+    if (!items || items.length === 0) {
+      return OrderStatus.PLACED;
+    }
+
+    if (items.some((i) => i.status === OrderItemStatus.NOT_RECEIVED_UNDER_DISPUTE)) {
+      return OrderStatus.UNDER_DISPUTE;
+    }
+
+    if (items.every((i) => i.status === OrderItemStatus.CANCELLED)) {
+      return OrderStatus.CANCELLED;
+    }
+
+    const nonCancelled = items.filter((i) => i.status !== OrderItemStatus.CANCELLED);
+    if (nonCancelled.length > 0 && nonCancelled.every((i) => i.status === OrderItemStatus.DELIVERED)) {
+      return OrderStatus.DELIVERED;
+    }
+
+    if (items.some((i) => i.status === OrderItemStatus.DELIVERED)) {
+      return OrderStatus.PARTIALLY_DELIVERED;
+    }
+
+    if (items.some((i) => i.status === OrderItemStatus.SHIPPED)) {
+      return OrderStatus.PARTIALLY_SHIPPED;
+    }
+
+    if (items.some((i) => i.status === OrderItemStatus.CANCELLED)) {
+      return OrderStatus.PARTIALLY_CANCELLED;
+    }
+
+    return OrderStatus.PLACED;
+  }
 }
+
