@@ -322,7 +322,7 @@ describe('Notification, Reporting, and Administration End-to-End Integration Flo
       id: 'ord-101',
       customerId: 'cust-prof-1',
       orderNumber: 'ORD-2026-8800',
-      orderStatus: OrderStatus.CONFIRMED,
+      orderStatus: OrderStatus.PLACED,
       paymentStatus: PaymentStatus.PAID,
       subtotal: new Decimal(5000.0),
       discountAmount: new Decimal(0.0),

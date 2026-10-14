@@ -2,7 +2,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../src/prisma.service';
 import { AuditService } from '../src/audit/audit.service';
 import { InventoryService } from '../src/inventory/inventory.service';
-import { StockAdjustmentMode } from '../src/inventory/dto';
 import { CustomerService } from '../src/customer/customer.service';
 import { ReturnRefundService } from '../src/return-refund/return-refund.service';
 import { SettlementService } from '../src/settlement/settlement.service';
@@ -10,15 +9,20 @@ import {
   OrderItemStatus,
   OrderStatus,
   PaymentStatus,
+  PaymentTransactionStatus,
+  PaymentTransactionType,
   ReturnRequestStatus,
   RefundStatus,
-  SettlementStatus,
+  SettlementBatchStatus,
+  SettlementItemStatus,
   SettlementPayoutMethod,
-  StockChangeType,
+  AdjustmentType,
+  LedgerDirection,
+  AdjustmentStatus,
 } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 
-describe('Return, Refund, and Settlement End-to-End Integration Flow', () => {
+describe('Return, Refund, Seller Adjustment, and Settlement End-to-End Integration Flow', () => {
   let prismaService: PrismaService;
   let auditService: AuditService;
   let inventoryService: InventoryService;
@@ -32,6 +36,7 @@ describe('Return, Refund, and Settlement End-to-End Integration Flow', () => {
     customerProfiles: new Map(),
     sellerProfiles: new Map(),
     products: new Map(),
+    productVariants: new Map(),
     inventories: new Map(),
     inventoryHistories: new Map(),
     orders: new Map(),
@@ -40,6 +45,7 @@ describe('Return, Refund, and Settlement End-to-End Integration Flow', () => {
     paymentTransactions: new Map(),
     returnRequests: new Map(),
     refunds: new Map(),
+    sellerAdjustments: new Map(),
     settlements: new Map(),
     settlementItems: new Map(),
     auditLogs: new Map(),
@@ -74,27 +80,38 @@ describe('Return, Refund, and Settlement End-to-End Integration Flow', () => {
           }
           return db.sellerProfiles.get(where.id) || null;
         }),
+        findMany: jest.fn(async ({ where }: any) => {
+          let list = Array.from(db.sellerProfiles.values());
+          if (where?.user?.role?.name?.not === 'SUPER_ADMIN') {
+            list = list.filter((s: any) => {
+              const u = db.users.get(s.userId);
+              return u?.role?.name !== 'SUPER_ADMIN';
+            });
+          }
+          return list;
+        }),
       },
       product: {
         findUnique: jest.fn(async ({ where }: any) => db.products.get(where.id) || null),
       },
+      productVariant: {
+        findUnique: jest.fn(async ({ where }: any) => db.productVariants.get(where.id) || null),
+        update: jest.fn(async ({ where, data }: any) => {
+          const v = db.productVariants.get(where.id);
+          const updated = { ...v, ...data, updatedAt: new Date() };
+          db.productVariants.set(where.id, updated);
+          return updated;
+        }),
+      },
       inventory: {
-        findUnique: jest.fn(async ({ where, include }: any) => {
-          let inv: any = null;
-          if (where.productId) {
+        findUnique: jest.fn(async ({ where }: any) => {
+          if (where.variantId) {
             for (const item of db.inventories.values()) {
-              if (item.productId === where.productId) {
-                inv = item;
-                break;
-              }
+              if (item.variantId === where.variantId) return item;
             }
-          } else if (where.id) {
-            inv = db.inventories.get(where.id) || null;
           }
-          if (inv && include?.product) {
-            return { ...inv, product: db.products.get(inv.productId) };
-          }
-          return inv;
+          if (where.id) return db.inventories.get(where.id) || null;
+          return null;
         }),
         update: jest.fn(async ({ where, data }: any) => {
           const inv = db.inventories.get(where.id);
@@ -180,15 +197,15 @@ describe('Return, Refund, and Settlement End-to-End Integration Flow', () => {
               (rf: any) => rf.orderItemId === item.id,
             );
           }
+          if (include?.settlementItem) {
+            res.settlementItem = db.settlementItems.get(item.id) || null;
+          }
           return res;
         }),
         findMany: jest.fn(async ({ where, include }: any) => {
           let list = Array.from(db.orderItems.values());
           if (where?.sellerId) list = list.filter((i: any) => i.sellerId === where.sellerId);
           if (where?.status) list = list.filter((i: any) => i.status === where.status);
-          if (where?.settlementItem === null) {
-            list = list.filter((i: any) => !db.settlementItems.has(i.id));
-          }
           if (where?.createdAt?.gte) {
             list = list.filter((i: any) => new Date(i.createdAt) >= where.createdAt.gte);
           }
@@ -198,6 +215,13 @@ describe('Return, Refund, and Settlement End-to-End Integration Flow', () => {
           return list.map((item: any) => {
             const res = { ...item };
             if (include?.order) res.order = db.orders.get(item.orderId);
+            if (include?.seller) {
+              const s = db.sellerProfiles.get(item.sellerId);
+              if (s && include.seller.include?.user) {
+                s.user = db.users.get(s.userId);
+              }
+              res.seller = s;
+            }
             if (include?.returnRequests) {
               res.returnRequests = Array.from(db.returnRequests.values()).filter(
                 (r: any) => r.orderItemId === item.id,
@@ -207,6 +231,18 @@ describe('Return, Refund, and Settlement End-to-End Integration Flow', () => {
               res.refunds = Array.from(db.refunds.values()).filter(
                 (rf: any) => rf.orderItemId === item.id,
               );
+            }
+            if (include?.settlementItem) {
+              const si = db.settlementItems.get(item.id);
+              if (si) {
+                const siCopy = { ...si };
+                if (include.settlementItem.include?.settlement) {
+                  siCopy.settlement = db.settlements.get(si.settlementId);
+                }
+                res.settlementItem = siCopy;
+              } else {
+                res.settlementItem = null;
+              }
             }
             return res;
           });
@@ -249,6 +285,16 @@ describe('Return, Refund, and Settlement End-to-End Integration Flow', () => {
                   db.paymentTransactions.values(),
                 ).filter((t: any) => t.orderId === ord.id);
               }
+              if (include.order.include?.refunds) {
+                ordCopy.refunds = Array.from(db.refunds.values()).filter(
+                  (r: any) => r.orderId === ord.id,
+                );
+              }
+              if (include.order.include?.orderItems) {
+                ordCopy.orderItems = Array.from(db.orderItems.values()).filter(
+                  (oi: any) => oi.orderId === ord.id,
+                );
+              }
               res.order = ordCopy;
             }
           }
@@ -257,6 +303,11 @@ describe('Return, Refund, and Settlement End-to-End Integration Flow', () => {
           if (include?.refund) {
             res.refund = Array.from(db.refunds.values()).find(
               (rf: any) => rf.returnRequestId === ret.id,
+            );
+          }
+          if (include?.adjustments) {
+            res.adjustments = Array.from(db.sellerAdjustments.values()).filter(
+              (a: any) => a.returnRequestId === ret.id,
             );
           }
           return res;
@@ -290,7 +341,13 @@ describe('Return, Refund, and Settlement End-to-End Integration Flow', () => {
           return rec;
         }),
         findUnique: jest.fn(async ({ where, include }: any) => {
-          const rf = db.refunds.get(where.id);
+          let rf: any = null;
+          if (where.id) rf = db.refunds.get(where.id);
+          if (where.returnRequestId) {
+            rf = Array.from(db.refunds.values()).find(
+              (r: any) => r.returnRequestId === where.returnRequestId,
+            );
+          }
           if (!rf) return null;
           const res = { ...rf };
           if (include?.order) {
@@ -321,6 +378,36 @@ describe('Return, Refund, and Settlement End-to-End Integration Flow', () => {
           const rf = db.refunds.get(where.id);
           const updated = { ...rf, ...data, updatedAt: new Date() };
           db.refunds.set(where.id, updated);
+          return updated;
+        }),
+      },
+      sellerAdjustment: {
+        create: jest.fn(async ({ data }: any) => {
+          const id = `adj-${Date.now()}-${Math.random()}`;
+          const rec = {
+            id,
+            isWrittenOff: false,
+            ...data,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+          db.sellerAdjustments.set(id, rec);
+          return rec;
+        }),
+        findMany: jest.fn(async ({ where }: any) => {
+          let list = Array.from(db.sellerAdjustments.values());
+          if (where?.sellerId) list = list.filter((a: any) => a.sellerId === where.sellerId);
+          if (where?.status) list = list.filter((a: any) => a.status === where.status);
+          if (where?.isWrittenOff !== undefined) {
+            list = list.filter((a: any) => a.isWrittenOff === where.isWrittenOff);
+          }
+          return list;
+        }),
+        findUnique: jest.fn(async ({ where }: any) => db.sellerAdjustments.get(where.id) || null),
+        update: jest.fn(async ({ where, data }: any) => {
+          const adj = db.sellerAdjustments.get(where.id);
+          const updated = { ...adj, ...data, updatedAt: new Date() };
+          db.sellerAdjustments.set(where.id, updated);
           return updated;
         }),
       },
@@ -361,6 +448,16 @@ describe('Return, Refund, and Settlement End-to-End Integration Flow', () => {
           if (!s) return null;
           const res = { ...s };
           if (include?.seller) res.seller = db.sellerProfiles.get(s.sellerId);
+          if (include?.appliedAdjustments) {
+            res.appliedAdjustments = Array.from(db.sellerAdjustments.values()).filter(
+              (a: any) => a.appliedInSettlementId === s.id,
+            );
+          }
+          if (include?.originatingAdjustments) {
+            res.originatingAdjustments = Array.from(db.sellerAdjustments.values()).filter(
+              (a: any) => a.originatingSettlementId === s.id,
+            );
+          }
           if (include?.items) {
             res.items = Array.from(db.settlementItems.values())
               .filter((si: any) => si.settlementId === s.id)
@@ -409,6 +506,28 @@ describe('Return, Refund, and Settlement End-to-End Integration Flow', () => {
           };
         }),
       },
+      settlementItem: {
+        updateMany: jest.fn(async ({ where, data }: any) => {
+          let count = 0;
+          for (const [k, v] of db.settlementItems.entries()) {
+            if (where.settlementId && v.settlementId === where.settlementId) {
+              db.settlementItems.set(k, { ...v, ...data, updatedAt: new Date() });
+              count++;
+            }
+          }
+          return { count };
+        }),
+        deleteMany: jest.fn(async ({ where }: any) => {
+          let count = 0;
+          for (const [k, v] of db.settlementItems.entries()) {
+            if (where.settlementId && v.settlementId === where.settlementId) {
+              db.settlementItems.delete(k);
+              count++;
+            }
+          }
+          return { count };
+        }),
+      },
       paymentTransaction: {
         create: jest.fn(async ({ data }: any) => {
           const id = `ptx-${Date.now()}-${Math.random()}`;
@@ -440,14 +559,16 @@ describe('Return, Refund, and Settlement End-to-End Integration Flow', () => {
     settlementService = new SettlementService(mockPrisma, auditService);
   });
 
-  it('should execute full end-to-end return, physical restock, refund processing, settlement preview, creation, and manual payout flow', async () => {
+  it('should execute full end-to-end 8-stage return workflow, refund processing, seller fault debit ledger, and settlement engine', async () => {
     // 1. Setup Customer User & Profile
     const customerUser = {
       id: 'cust-usr-1',
       fullName: 'Vikram Mehta',
       email: 'vikram@example.com',
+      role: { name: 'CUSTOMER' },
     };
     db.users.set(customerUser.id, customerUser);
+
     const custProfile = {
       id: 'prof-cust-1',
       userId: customerUser.id,
@@ -457,8 +578,8 @@ describe('Return, Refund, and Settlement End-to-End Integration Flow', () => {
     db.customerProfiles.set(custProfile.id, custProfile);
 
     // 2. Setup Seller A (Earphones) and Seller B (Powerbank)
-    const sellerAUser = { id: 'usr-seller-a', email: 'sellerA@example.com' };
-    const sellerBUser = { id: 'usr-seller-b', email: 'sellerB@example.com' };
+    const sellerAUser = { id: 'usr-seller-a', email: 'sellerA@example.com', role: { name: 'SELLER' } };
+    const sellerBUser = { id: 'usr-seller-b', email: 'sellerB@example.com', role: { name: 'SELLER' } };
     db.users.set(sellerAUser.id, sellerAUser);
     db.users.set(sellerBUser.id, sellerBUser);
 
@@ -466,6 +587,7 @@ describe('Return, Refund, and Settlement End-to-End Integration Flow', () => {
       id: 'seller-profile-a',
       userId: sellerAUser.id,
       displayName: 'SoundBeat Audio',
+      businessName: 'SoundBeat Audio Pvt Ltd',
       payoutDetails: {
         accountNumber: '1122334455',
         ifscCode: 'HDFC0001234',
@@ -476,6 +598,7 @@ describe('Return, Refund, and Settlement End-to-End Integration Flow', () => {
       id: 'seller-profile-b',
       userId: sellerBUser.id,
       displayName: 'VoltTech Powers',
+      businessName: 'VoltTech Powers LLP',
       payoutDetails: {
         accountNumber: '9988776655',
         ifscCode: 'ICIC0005678',
@@ -485,35 +608,50 @@ describe('Return, Refund, and Settlement End-to-End Integration Flow', () => {
     db.sellerProfiles.set(sellerA.id, sellerA);
     db.sellerProfiles.set(sellerB.id, sellerB);
 
-    // 3. Setup Products & Inventories
+    // 3. Setup Products, Variants, & Inventories
     const prodA = {
       id: 'prod-earphones',
       name: 'Wireless Earbuds Pro',
-      sku: 'EAR-PRO-1',
       sellerId: sellerA.id,
-      price: new Decimal(2000.0),
     };
     const prodB = {
       id: 'prod-powerbank',
       name: '20000mAh Power Bank',
-      sku: 'PWR-20K',
       sellerId: sellerB.id,
-      price: new Decimal(1500.0),
     };
     db.products.set(prodA.id, prodA);
     db.products.set(prodB.id, prodB);
 
+    const variantA = {
+      id: 'var-earphones-black',
+      productId: prodA.id,
+      sku: 'EAR-PRO-BLK',
+      price: new Decimal(2000.0),
+      stockQuantity: 10,
+    };
+    const variantB = {
+      id: 'var-powerbank-silver',
+      productId: prodB.id,
+      sku: 'PWR-20K-SLV',
+      price: new Decimal(1500.0),
+      stockQuantity: 15,
+    };
+    db.productVariants.set(variantA.id, variantA);
+    db.productVariants.set(variantB.id, variantB);
+
     const invA = {
       id: 'inv-a',
-      productId: prodA.id,
+      variantId: variantA.id,
       availableQuantity: 10,
       reservedQuantity: 0,
+      lowStockThreshold: 2,
     };
     const invB = {
       id: 'inv-b',
-      productId: prodB.id,
+      variantId: variantB.id,
       availableQuantity: 15,
       reservedQuantity: 0,
+      lowStockThreshold: 3,
     };
     db.inventories.set(invA.id, invA);
     db.inventories.set(invB.id, invB);
@@ -524,11 +662,12 @@ describe('Return, Refund, and Settlement End-to-End Integration Flow', () => {
       id: orderId,
       customerId: custProfile.id,
       orderNumber: 'ORD-2026-9001',
-      orderStatus: OrderStatus.CONFIRMED,
+      orderStatus: OrderStatus.DELIVERED,
       paymentStatus: PaymentStatus.PAID,
       currency: 'INR',
+      shippingAmount: new Decimal(100.0),
       subtotal: new Decimal(3500.0),
-      totalAmount: new Decimal(3500.0),
+      totalAmount: new Decimal(3600.0),
       createdAt: new Date('2026-09-01T10:00:00.000Z'),
     };
     db.orders.set(orderId, order);
@@ -538,48 +677,50 @@ describe('Return, Refund, and Settlement End-to-End Integration Flow', () => {
       id: paymentTxId,
       orderId,
       customerId: custProfile.id,
-      amount: new Decimal(3500.0),
-      status: 'SUCCEEDED',
-      transactionType: 'PAYMENT',
+      amount: new Decimal(3600.0),
+      status: PaymentTransactionStatus.SUCCEEDED,
+      transactionType: PaymentTransactionType.PAYMENT,
     });
 
-    // Item A delivered 2 days ago (eligible for 5-day return window)
+    // Item A (Seller A) delivered 2 days ago (eligible for 5-day return window)
     const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
     const itemAId = 'item-a-1';
     const itemA = {
       id: itemAId,
       orderId,
       sellerId: sellerA.id,
-      productId: prodA.id,
+      variantId: variantA.id,
       productName: prodA.name,
-      sku: prodA.sku,
+      sku: variantA.sku,
       unitPrice: new Decimal(2000.0),
       quantity: 1,
       totalAmount: new Decimal(2000.0),
       commissionRate: new Decimal(10.0),
       commissionAmount: new Decimal(200.0),
-      sellerEarnings: new Decimal(1800.0),
+      shippingFeeShare: new Decimal(50.0),
+      sellerEarnings: new Decimal(1850.0),
       status: OrderItemStatus.DELIVERED,
       deliveredAt: twoDaysAgo,
       createdAt: new Date('2026-09-01T10:00:00.000Z'),
     };
     db.orderItems.set(itemAId, itemA);
 
-    // Item B delivered 10 days ago (eligible for 7-day holding settlement period)
+    // Item B (Seller B) delivered 10 days ago (eligible for 7-day holding settlement period)
     const tenDaysAgo = new Date('2026-09-10T10:00:00.000Z');
     const itemBId = 'item-b-1';
     const itemB = {
       id: itemBId,
       orderId,
       sellerId: sellerB.id,
-      productId: prodB.id,
+      variantId: variantB.id,
       productName: prodB.name,
-      sku: prodB.sku,
+      sku: variantB.sku,
       unitPrice: new Decimal(1500.0),
       quantity: 1,
       totalAmount: new Decimal(1500.0),
       commissionRate: new Decimal(10.0),
       commissionAmount: new Decimal(150.0),
+      shippingFeeShare: new Decimal(0.0),
       sellerEarnings: new Decimal(1350.0),
       status: OrderItemStatus.DELIVERED,
       deliveredAt: tenDaysAgo,
@@ -587,24 +728,24 @@ describe('Return, Refund, and Settlement End-to-End Integration Flow', () => {
     };
     db.orderItems.set(itemBId, itemB);
 
-    // ================= STEP 5: CUSTOMER INITIATES RETURN FOR ITEM A =================
+    // ================= STAGE 1: CUSTOMER INITIATES RETURN FOR ITEM A =================
     const returnReqRes = await returnRefundService.createReturnRequest(
       customerUser.id,
       orderId,
       itemAId,
       {
         returnQuantity: 1,
-        reason: 'Audio distortion in left earpiece',
-        customerComments: 'Tested on two phones, issue persists',
+        reason: 'Defective audio distortion in left earpiece',
+        faultClassification: 'SELLER_FAULT',
+        customerComments: 'Tested on two devices, issue persists',
       },
     );
 
     expect(returnReqRes.success).toBe(true);
     const returnRequestId = returnReqRes.data.id;
-    expect(returnReqRes.data.status).toBe(ReturnRequestStatus.PENDING);
-    expect(db.orderItems.get(itemAId).status).toBe(OrderItemStatus.RETURN_REQUESTED);
+    expect(returnReqRes.data.status).toBe(ReturnRequestStatus.REQUESTED);
 
-    // ================= STEP 6: ADMIN APPROVES RETURN & SCHEDULES PICKUP =================
+    // ================= STAGE 2: SUPER ADMIN APPROVES RETURN REQUEST =================
     const adminUserId = 'super-admin-1';
     const approveRes = await returnRefundService.approveReturnRequest(
       adminUserId,
@@ -613,48 +754,63 @@ describe('Return, Refund, and Settlement End-to-End Integration Flow', () => {
         pickupCarrier: 'Delhivery',
         pickupTrackingNumber: 'DEL-RET-7788',
         pickupScheduledAt: new Date(Date.now() + 86400000).toISOString(),
-        adminRemarks: 'Approved for pickup and inspection',
+        adminRemarks: 'Approved for return pickup and inspection',
       },
     );
 
     expect(approveRes.success).toBe(true);
-    expect(approveRes.data.status).toBe(ReturnRequestStatus.PICKUP_SCHEDULED);
-    expect(approveRes.data.pickupCarrier).toBe('Delhivery');
+    expect(approveRes.data.status).toBe(ReturnRequestStatus.APPROVED);
 
-    // ================= STEP 7: ADMIN COMPLETES RETURN & RESTOCKS INVENTORY =================
-    const completeRes = await returnRefundService.completeReturnRequest(
+    // ================= STAGE 3: CUSTOMER SHIPS RETURN ITEM =================
+    const shipRes = await returnRefundService.customerShipReturn(
+      customerUser.id,
+      returnRequestId,
+      {
+        courierName: 'Delhivery',
+        trackingNumber: 'DEL-RET-7788',
+      },
+    );
+
+    expect(shipRes.success).toBe(true);
+    expect(shipRes.data.status).toBe(ReturnRequestStatus.IN_TRANSIT);
+
+    // ================= STAGE 4: SELLER CONFIRMS RECEIPT =================
+    const receiptRes = await returnRefundService.sellerConfirmReceipt(
+      sellerAUser.id,
+      returnRequestId,
+    );
+
+    expect(receiptRes.success).toBe(true);
+    expect(receiptRes.data.status).toBe(ReturnRequestStatus.RECEIVED);
+
+    // ================= STAGE 5: SELLER VERIFIES RETURN & RESTOCKS VARIANT =================
+    const verifyRes = await returnRefundService.sellerVerifyReturn(
+      sellerAUser.id,
+      returnRequestId,
+      'Inspection verified at warehouse; accepted for restock',
+    );
+
+    expect(verifyRes.success).toBe(true);
+    expect(verifyRes.data.status).toBe(ReturnRequestStatus.VERIFIED);
+
+    // Variant inventory for Product A is automatically restocked: 10 -> 11
+    expect(db.inventories.get(invA.id).availableQuantity).toBe(11);
+    expect(db.productVariants.get(variantA.id).stockQuantity).toBe(11);
+
+    // ================= STAGE 7 & 8: SUPER ADMIN PROCESSES SELLER-FAULT REFUND =================
+    const refundRes = await returnRefundService.processReturnRefund(
       adminUserId,
       returnRequestId,
       {
-        restockInventory: true,
-        adminRemarks: 'Inspection passed, product verified in warehouse',
-      },
-    );
-
-    expect(completeRes.success).toBe(true);
-    expect(completeRes.data.returnRequest.status).toBe(ReturnRequestStatus.COMPLETED);
-    expect(db.orderItems.get(itemAId).status).toBe(OrderItemStatus.RETURNED);
-
-    // Inventory for Product A is restocked from 10 -> 11
-    expect(db.inventories.get(invA.id).availableQuantity).toBe(11);
-
-    const pendingRefund = completeRes.data.refund;
-    expect(pendingRefund.status).toBe(RefundStatus.PENDING);
-    expect(Number(pendingRefund.refundAmount)).toBe(2000.0);
-
-    // ================= STEP 8: ADMIN PROCESSES REFUND =================
-    const processRefundRes = await returnRefundService.processRefund(
-      adminUserId,
-      pendingRefund.id,
-      {
+        faultClassification: 'SELLER_FAULT',
+        returnShippingFee: 79.0,
         providerRefundId: 'rfnd_razorpay_998811',
-        payoutNotes: 'Processed via Razorpay gateway dashboard',
+        payoutNotes: 'Refunded via Razorpay gateway dashboard',
       },
     );
 
-    expect(processRefundRes.success).toBe(true);
-    expect(processRefundRes.data.status).toBe(RefundStatus.SUCCEEDED);
-    expect(db.orderItems.get(itemAId).status).toBe(OrderItemStatus.REFUNDED);
+    expect(refundRes.success).toBe(true);
+    expect(refundRes.data.returnRequest.status).toBe(ReturnRequestStatus.REFUNDED);
     expect(db.orders.get(orderId).paymentStatus).toBe(PaymentStatus.PARTIALLY_REFUNDED);
 
     // Verify refund payment transaction was created
@@ -662,39 +818,48 @@ describe('Return, Refund, and Settlement End-to-End Integration Flow', () => {
       (tx: any) => tx.providerTransactionId === 'rfnd_razorpay_998811',
     );
     expect(refundTx).toBeDefined();
-    expect(Number((refundTx as any).amount)).toBe(2000.0);
+
+    // Verify SELLER_FAULT_RETURN_SHIPPING_DEBIT was created in SellerAdjustment ledger
+    const sellerAdjustments: any[] = Array.from(db.sellerAdjustments.values()).filter(
+      (a: any) => a.sellerId === sellerA.id,
+    );
+    expect(sellerAdjustments).toHaveLength(1);
+    expect(sellerAdjustments[0].type).toBe(AdjustmentType.SELLER_FAULT_RETURN_SHIPPING_DEBIT);
+    expect(Number(sellerAdjustments[0].amount)).toBe(79.0);
+    expect(sellerAdjustments[0].direction).toBe(LedgerDirection.DEBIT);
+    expect(sellerAdjustments[0].status).toBe(AdjustmentStatus.PENDING);
 
     // ================= STEP 9: SELLER B SETTLEMENT WORKFLOW =================
     const periodFrom = '2026-09-01T00:00:00.000Z';
     const periodTo = '2026-09-30T23:59:59.000Z';
 
-    // 9a. Preview Settlement for Seller B
-    const previewRes = await settlementService.previewSettlement(adminUserId, {
+    // 9a. Preview Settlement for Seller B (1 eligible item past 7-day holding period)
+    const previewResB = await settlementService.previewSettlement(adminUserId, {
       sellerId: sellerB.id,
       periodFrom,
       periodTo,
     });
 
-    expect(previewRes.success).toBe(true);
-    expect(previewRes.data.eligibleItemCount).toBe(1);
-    expect(previewRes.data.summary.grossAmount).toBe(1500.0);
-    expect(previewRes.data.summary.commissionAmount).toBe(150.0);
-    expect(previewRes.data.summary.netSettlementAmount).toBe(1350.0);
+    expect(previewResB.success).toBe(true);
+    expect(previewResB.data.eligibleItemCount).toBe(1);
+    expect(previewResB.data.summary.grossAmount).toBe(1500.0);
+    expect(previewResB.data.summary.commissionAmount).toBe(150.0);
+    expect(previewResB.data.summary.netSettlementAmount).toBe(1350.0);
 
-    // 9b. Create Settlement for Seller B
-    const createSetRes = await settlementService.createSettlement(adminUserId, {
+    // 9b. Create Settlement Batch for Seller B
+    const createSetResB = await settlementService.createSettlement(adminUserId, {
       sellerId: sellerB.id,
       periodFrom,
       periodTo,
     });
 
-    expect(createSetRes.success).toBe(true);
-    const settlementId = createSetRes.data.id;
-    expect(createSetRes.data.status).toBe(SettlementStatus.PENDING);
-    expect(createSetRes.data.items).toHaveLength(1);
-    expect(Number(createSetRes.data.netSettlementAmount)).toBe(1350.0);
+    expect(createSetResB.success).toBe(true);
+    const settlementIdB = createSetResB.data.id;
+    expect(createSetResB.data.status).toBe(SettlementBatchStatus.GENERATED);
+    expect(createSetResB.data.items).toHaveLength(1);
+    expect(Number(createSetResB.data.netSettlementAmount)).toBe(1350.0);
 
-    // 9c. Item B is now settled - a second settlement attempt should find 0 eligible items
+    // 9c. Re-run settlement attempt should fail with zero eligible items
     await expect(
       settlementService.createSettlement(adminUserId, {
         sellerId: sellerB.id,
@@ -703,31 +868,55 @@ describe('Return, Refund, and Settlement End-to-End Integration Flow', () => {
       }),
     ).rejects.toThrow('No eligible delivered order items found');
 
-    // 9d. Admin processes manual payout to Seller B
-    const payoutRes = await settlementService.processPayout(
+    // 9d. Confirm Payout with external bank transaction reference
+    const payoutResB = await settlementService.confirmPayout(
       adminUserId,
-      settlementId,
+      settlementIdB,
       {
+        bankTransactionReference: 'NEFT-ICICI-20260930-8899',
         payoutMethod: SettlementPayoutMethod.BANK_TRANSFER,
-        payoutReference: 'NEFT-ICICI-20260930-8899',
         payoutNotes: 'Transferred to ICICI Bank Account 9988776655',
       },
     );
 
-    expect(payoutRes.success).toBe(true);
-    expect(payoutRes.data.status).toBe(SettlementStatus.COMPLETED);
-    expect(payoutRes.data.payoutReference).toBe('NEFT-ICICI-20260930-8899');
+    expect(payoutResB.success).toBe(true);
+    expect(payoutResB.data.status).toBe(SettlementBatchStatus.SETTLED);
+    expect(payoutResB.data.payoutReference).toBe('NEFT-ICICI-20260930-8899');
 
     // 9e. Seller B downloads their settlement report
-    const reportRes = await settlementService.generateSettlementReport(
+    const reportResB = await settlementService.generateSettlementReport(
       sellerBUser.id,
-      settlementId,
+      settlementIdB,
       'SELLER',
     );
 
-    expect(reportRes.success).toBe(true);
-    expect(reportRes.data.summary.netSettlementAmount).toBe(1350.0);
-    expect(reportRes.data.items).toHaveLength(1);
-    expect(reportRes.data.items[0].productName).toBe('20000mAh Power Bank');
+    expect(reportResB.success).toBe(true);
+    expect(reportResB.data.summary.netSettlementAmount).toBe(1350.0);
+    expect(reportResB.data.items).toHaveLength(1);
+    expect(reportResB.data.items[0].productName).toBe('20000mAh Power Bank');
+
+    // ================= STEP 10: SELLER A ADJUSTMENT LEDGER & ADMIN WRITE-OFF =================
+    // 10a. Verify Seller A's live debit balance reflects the ₹79 return shipping charge
+    const sellerALedger = await settlementService.getSellerAdjustments(sellerA.id);
+    expect(sellerALedger.success).toBe(true);
+    expect(sellerALedger.data.currentDebitBalance).toBe(79.0);
+    expect(sellerALedger.data.adjustments).toHaveLength(1);
+
+    const adjustmentId = sellerALedger.data.adjustments[0].id;
+
+    // 10b. Admin writes off the debit with mandatory justification
+    const writeOffRes = await settlementService.writeOffAdjustment(
+      adminUserId,
+      adjustmentId,
+      { reason: 'Customer logistics damage was courier responsibility; fee waived for seller' },
+    );
+
+    expect(writeOffRes.success).toBe(true);
+    expect(writeOffRes.data.status).toBe(AdjustmentStatus.WRITTEN_OFF);
+    expect(writeOffRes.data.isWrittenOff).toBe(true);
+
+    // 10c. Verify Seller A's live debit balance is cleared to ₹0.00
+    const clearedLedger = await settlementService.getSellerAdjustments(sellerA.id);
+    expect(clearedLedger.data.currentDebitBalance).toBe(0.0);
   });
 });

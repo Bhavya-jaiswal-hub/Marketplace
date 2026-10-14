@@ -67,7 +67,7 @@ describe('ReportingService', () => {
         {
           id: 'ord-1',
           orderNumber: 'ORD-101',
-          orderStatus: OrderStatus.CONFIRMED,
+          orderStatus: OrderStatus.DELIVERED,
           paymentStatus: PaymentStatus.PAID,
           subtotal: new Decimal(2000.0),
           discountAmount: new Decimal(100.0),

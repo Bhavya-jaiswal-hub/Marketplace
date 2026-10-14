@@ -262,8 +262,8 @@ export class ReportingService {
       totalCommissionRetained += comm;
       totalNetDisbursed += net;
 
-      if (s.status === 'COMPLETED') completedCount++;
-      if (s.status === 'PENDING') pendingCount++;
+      if (s.status === 'SETTLED') completedCount++;
+      if (s.status === 'GENERATED' || s.status === 'APPROVED') pendingCount++;
 
       return {
         settlementNumber: s.settlementNumber,
@@ -306,9 +306,9 @@ export class ReportingService {
       orderBy: { createdAt: 'desc' },
     });
 
-    const statusCounts = {
+    const statusCounts: Record<string, number> = {
       TOTAL: sellers.length,
-      PENDING: 0,
+      PENDING_APPROVAL: 0,
       APPROVED: 0,
       REJECTED: 0,
       SUSPENDED: 0,
@@ -348,12 +348,12 @@ export class ReportingService {
   async getProductsReport(dto: ReportFilterDto): Promise<any> {
     const products = await this.prisma.product.findMany({
       where: {
-        status: { not: ProductStatus.DELETED },
+        status: { not: ProductStatus.SOFT_DELETED },
       },
       include: {
         category: true,
         seller: { select: { displayName: true } },
-        inventory: true,
+        variants: { include: { inventory: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -361,25 +361,35 @@ export class ReportingService {
     const statusCounts: Record<string, number> = {
       TOTAL: products.length,
       ACTIVE: 0,
-      DRAFT: 0,
       PAUSED: 0,
       HIDDEN: 0,
+      SOFT_DELETED: 0,
+      REMOVED_BY_ADMIN: 0,
     };
 
     const productList = products.map((p) => {
       if (statusCounts[p.status] !== undefined) {
         statusCounts[p.status]++;
       }
+      const availableStock = p.variants?.reduce(
+        (sum, v) => sum + (v.inventory?.availableQuantity ?? v.stockQuantity),
+        0,
+      ) || 0;
+      const reservedStock = p.variants?.reduce(
+        (sum, v) => sum + (v.inventory?.reservedQuantity ?? 0),
+        0,
+      ) || 0;
+
       return {
         productId: p.id,
         name: p.name,
-        sku: p.sku,
+        sku: p.variants?.[0]?.sku || '',
         category: p.category?.name || 'Unassigned',
         sellerName: p.seller?.displayName,
         price: Number(p.price),
         status: p.status,
-        availableStock: p.inventory?.availableQuantity || 0,
-        reservedStock: p.inventory?.reservedQuantity || 0,
+        availableStock,
+        reservedStock,
       };
     });
 
@@ -396,10 +406,14 @@ export class ReportingService {
   async getInventoryReport(dto: ReportFilterDto): Promise<any> {
     const inventories = await this.prisma.inventory.findMany({
       include: {
-        product: {
+        variant: {
           include: {
-            seller: { select: { displayName: true } },
-            category: { select: { name: true } },
+            product: {
+              include: {
+                seller: { select: { displayName: true } },
+                category: { select: { name: true } },
+              },
+            },
           },
         },
       },
@@ -420,11 +434,12 @@ export class ReportingService {
       const isLowStock = avail <= threshold;
       const item = {
         inventoryId: inv.id,
-        productId: inv.productId,
-        productName: inv.product.name,
-        sku: inv.product.sku,
-        sellerName: inv.product.seller?.displayName,
-        category: inv.product.category?.name,
+        variantId: inv.variantId,
+        productId: inv.variant?.productId || (inv as any).productId || (inv as any).product?.id,
+        productName: inv.variant?.product?.name || (inv as any).product?.name,
+        sku: inv.variant?.sku || (inv as any).sku || (inv as any).product?.sku,
+        sellerName: inv.variant?.product?.seller?.displayName || (inv as any).product?.seller?.displayName,
+        category: inv.variant?.product?.category?.name || (inv as any).product?.category?.name,
         availableQuantity: avail,
         reservedQuantity: res,
         lowStockThreshold: threshold,
