@@ -16,9 +16,13 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { OrderService } from './order.service';
 import {
+  ArbitrateDisputeDto,
   CancelOrderDto,
+  DisputeQueryDto,
   InitiateCheckoutDto,
   OrderQueryDto,
+  ReportNotReceivedDto,
+  SubmitDisputeProofDto,
   UpdateFulfillmentStatusDto,
 } from './dto';
 
@@ -68,6 +72,23 @@ export class OrderController {
     return this.orderService.cancelOrder(req.user.sub, orderId, dto);
   }
 
+  @Post('orders/:orderId/items/:orderItemId/not-received')
+  @Roles('CUSTOMER')
+  @HttpCode(HttpStatus.OK)
+  async reportNotReceived(
+    @Req() req: AuthenticatedRequest,
+    @Param('orderId') orderId: string,
+    @Param('orderItemId') orderItemId: string,
+    @Body() dto: ReportNotReceivedDto,
+  ) {
+    return this.orderService.reportNotReceived(
+      req.user.sub,
+      orderId,
+      orderItemId,
+      dto,
+    );
+  }
+
   // ================= SELLER ORDER FULFILLMENT =================
 
   @Get('sellers/me/orders')
@@ -95,7 +116,24 @@ export class OrderController {
     );
   }
 
-  // ================= ADMIN ORDER MANAGEMENT =================
+  @Post('sellers/me/orders/:orderId/items/:orderItemId/dispute-proof')
+  @Roles('SELLER')
+  @HttpCode(HttpStatus.OK)
+  async submitDisputeProof(
+    @Req() req: AuthenticatedRequest,
+    @Param('orderId') orderId: string,
+    @Param('orderItemId') orderItemId: string,
+    @Body() dto: SubmitDisputeProofDto,
+  ) {
+    return this.orderService.submitDisputeProof(
+      req.user.sub,
+      orderId,
+      orderItemId,
+      dto,
+    );
+  }
+
+  // ================= ADMIN ORDER & DISPUTE MANAGEMENT =================
 
   @Get('admin/orders')
   @Roles('SUPER_ADMIN')
@@ -107,5 +145,26 @@ export class OrderController {
   @Roles('SUPER_ADMIN')
   async getAdminOrder(@Param('orderId') orderId: string) {
     return this.orderService.getAdminOrder(orderId);
+  }
+
+  @Get('admin/disputes')
+  @Roles('SUPER_ADMIN')
+  async listAdminDisputes(@Query() query: DisputeQueryDto) {
+    return this.orderService.listAdminDisputes(query);
+  }
+
+  @Post('admin/disputes/:orderItemId/arbitrate')
+  @Roles('SUPER_ADMIN')
+  @HttpCode(HttpStatus.OK)
+  async arbitrateDispute(
+    @Req() req: AuthenticatedRequest,
+    @Param('orderItemId') orderItemId: string,
+    @Body() dto: ArbitrateDisputeDto,
+  ) {
+    return this.orderService.arbitrateDispute(
+      req.user.sub,
+      orderItemId,
+      dto,
+    );
   }
 }
