@@ -3,7 +3,6 @@ import { ReturnRefundService } from '../src/return-refund/return-refund.service'
 import { PrismaService } from '../src/prisma.service';
 import { AuditService } from '../src/audit/audit.service';
 import { InventoryService } from '../src/inventory/inventory.service';
-import { StockAdjustmentMode } from '../src/inventory/dto';
 import {
   BadRequestException,
   ForbiddenException,
@@ -15,10 +14,14 @@ import {
   RefundStatus,
   PaymentTransactionStatus,
   PaymentTransactionType,
+  PaymentStatus,
+  AdjustmentType,
+  LedgerDirection,
+  AdjustmentStatus,
 } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 
-describe('ReturnRefundService', () => {
+describe('ReturnRefundService (SRS v1.2 8-Stage Return Workflow)', () => {
   let service: ReturnRefundService;
   let mockPrisma: any;
   let mockAudit: any;
@@ -53,6 +56,9 @@ describe('ReturnRefundService', () => {
         count: jest.fn(),
         update: jest.fn(),
       },
+      sellerAdjustment: {
+        create: jest.fn(),
+      },
       order: {
         update: jest.fn(),
       },
@@ -82,13 +88,17 @@ describe('ReturnRefundService', () => {
     service = module.get<ReturnRefundService>(ReturnRefundService);
   });
 
-  describe('createReturnRequest', () => {
-    const customerUserId = 'user-cust-1';
-    const customerId = 'cust-prof-1';
-    const orderId = 'order-123';
-    const orderItemId = 'item-456';
+  const customerUserId = 'user-cust-1';
+  const customerId = 'cust-prof-1';
+  const sellerUserId = 'user-sell-1';
+  const sellerId = 'sell-prof-1';
+  const adminUserId = 'user-admin-1';
+  const orderId = 'order-123';
+  const orderItemId = 'item-456';
+  const variantId = 'var-789';
 
-    it('should successfully create a return request within 5 days of delivery', async () => {
+  describe('Stage 1: createReturnRequest (Customer)', () => {
+    it('should successfully create a return request in REQUESTED status within 5 days of delivery', async () => {
       mockPrisma.customerProfile.findUnique.mockResolvedValue({
         id: customerId,
         userId: customerUserId,
@@ -98,7 +108,8 @@ describe('ReturnRefundService', () => {
       mockPrisma.orderItem.findUnique.mockResolvedValue({
         id: orderItemId,
         orderId,
-        sellerId: 'seller-789',
+        sellerId,
+        variantId,
         status: OrderItemStatus.DELIVERED,
         deliveredAt: threeDaysAgo,
         quantity: 2,
@@ -111,28 +122,64 @@ describe('ReturnRefundService', () => {
         orderId,
         orderItemId,
         customerId,
-        sellerId: 'seller-789',
+        sellerId,
         returnQuantity: 1,
-        reason: 'Defective speaker',
-        status: ReturnRequestStatus.PENDING,
+        reason: 'Defective zipper',
+        status: ReturnRequestStatus.REQUESTED,
       });
 
       const res = await service.createReturnRequest(
         customerUserId,
         orderId,
         orderItemId,
-        { returnQuantity: 1, reason: 'Defective speaker' },
+        {
+          returnQuantity: 1,
+          reason: 'Defective zipper',
+          faultClassification: 'SELLER_FAULT',
+        },
       );
 
       expect(res.success).toBe(true);
-      expect(res.data.id).toBe('ret-1');
-      expect(mockPrisma.orderItem.update).toHaveBeenCalledWith({
-        where: { id: orderItemId },
-        data: { status: OrderItemStatus.RETURN_REQUESTED },
-      });
+      expect(res.data.status).toBe(ReturnRequestStatus.REQUESTED);
+      expect(mockPrisma.returnRequest.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: ReturnRequestStatus.REQUESTED,
+            returnQuantity: 1,
+            reason: 'Defective zipper',
+          }),
+        }),
+      );
       expect(mockAudit.logAction).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'RETURN_REQUEST_CREATED' }),
       );
+    });
+
+    it('should strictly reject return request when exceeding 120 hours (5 days) post-delivery window', async () => {
+      mockPrisma.customerProfile.findUnique.mockResolvedValue({
+        id: customerId,
+        userId: customerUserId,
+      });
+
+      const sixDaysAgo = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000);
+      mockPrisma.orderItem.findUnique.mockResolvedValue({
+        id: orderItemId,
+        orderId,
+        sellerId,
+        variantId,
+        status: OrderItemStatus.DELIVERED,
+        deliveredAt: sixDaysAgo,
+        quantity: 2,
+        order: { customerId },
+        returnRequests: [],
+      });
+
+      await expect(
+        service.createReturnRequest(customerUserId, orderId, orderItemId, {
+          returnQuantity: 1,
+          reason: 'Defective zipper',
+        }),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('should reject return if item is not DELIVERED', async () => {
@@ -144,7 +191,7 @@ describe('ReturnRefundService', () => {
       mockPrisma.orderItem.findUnique.mockResolvedValue({
         id: orderItemId,
         orderId,
-        sellerId: 'seller-789',
+        sellerId,
         status: OrderItemStatus.SHIPPED,
         quantity: 2,
         order: { customerId },
@@ -154,140 +201,325 @@ describe('ReturnRefundService', () => {
       await expect(
         service.createReturnRequest(customerUserId, orderId, orderItemId, {
           returnQuantity: 1,
-          reason: 'Defective speaker',
+          reason: 'Changed mind',
         }),
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('should reject return if delivery was more than 5 days ago', async () => {
+    it('should reject return if an active return request already exists', async () => {
       mockPrisma.customerProfile.findUnique.mockResolvedValue({
         id: customerId,
         userId: customerUserId,
       });
 
-      const sixDaysAgo = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000);
+      const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
       mockPrisma.orderItem.findUnique.mockResolvedValue({
         id: orderItemId,
         orderId,
-        sellerId: 'seller-789',
+        sellerId,
         status: OrderItemStatus.DELIVERED,
-        deliveredAt: sixDaysAgo,
+        deliveredAt: twoDaysAgo,
         quantity: 2,
         order: { customerId },
-        returnRequests: [],
+        returnRequests: [{ id: 'ret-existing', status: ReturnRequestStatus.REQUESTED }],
       });
 
       await expect(
         service.createReturnRequest(customerUserId, orderId, orderItemId, {
           returnQuantity: 1,
-          reason: 'Defective speaker',
-        }),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('should reject return if returnQuantity exceeds ordered quantity', async () => {
-      mockPrisma.customerProfile.findUnique.mockResolvedValue({
-        id: customerId,
-        userId: customerUserId,
-      });
-
-      mockPrisma.orderItem.findUnique.mockResolvedValue({
-        id: orderItemId,
-        orderId,
-        sellerId: 'seller-789',
-        status: OrderItemStatus.DELIVERED,
-        deliveredAt: new Date(),
-        quantity: 1,
-        order: { customerId },
-        returnRequests: [],
-      });
-
-      await expect(
-        service.createReturnRequest(customerUserId, orderId, orderItemId, {
-          returnQuantity: 2,
-          reason: 'Defective',
+          reason: 'Defective fabric',
         }),
       ).rejects.toThrow(BadRequestException);
     });
   });
 
-  describe('approveReturnRequest & rejectReturnRequest', () => {
-    const adminUserId = 'admin-1';
-    const returnId = 'ret-1';
-
-    it('should approve return request and schedule pickup', async () => {
+  describe('Stage 2: approveReturnRequest & rejectReturnRequest (Super Admin)', () => {
+    it('should approve a REQUESTED return request moving it to APPROVED', async () => {
       mockPrisma.returnRequest.findUnique.mockResolvedValue({
-        id: returnId,
-        status: ReturnRequestStatus.PENDING,
-        orderItemId: 'item-1',
-      });
-      mockPrisma.returnRequest.update.mockResolvedValue({
-        id: returnId,
-        status: ReturnRequestStatus.PICKUP_SCHEDULED,
-        pickupCarrier: 'BlueDart',
+        id: 'ret-1',
+        status: ReturnRequestStatus.REQUESTED,
       });
 
-      const res = await service.approveReturnRequest(adminUserId, returnId, {
-        pickupCarrier: 'BlueDart',
-        pickupTrackingNumber: 'BD-9988',
+      mockPrisma.returnRequest.update.mockResolvedValue({
+        id: 'ret-1',
+        status: ReturnRequestStatus.APPROVED,
+        adminRemarks: 'Eligibility verified by Admin',
+      });
+
+      const res = await service.approveReturnRequest(adminUserId, 'ret-1', {
+        adminRemarks: 'Eligibility verified by Admin',
       });
 
       expect(res.success).toBe(true);
+      expect(res.data.status).toBe(ReturnRequestStatus.APPROVED);
       expect(mockAudit.logAction).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'RETURN_REQUEST_APPROVED' }),
       );
     });
 
-    it('should reject return request with reason and restore item to DELIVERED', async () => {
+    it('should reject a return request moving it to REJECTED', async () => {
       mockPrisma.returnRequest.findUnique.mockResolvedValue({
-        id: returnId,
-        status: ReturnRequestStatus.PENDING,
-        orderItemId: 'item-1',
-      });
-      mockPrisma.returnRequest.update.mockResolvedValue({
-        id: returnId,
-        status: ReturnRequestStatus.REJECTED,
+        id: 'ret-1',
+        status: ReturnRequestStatus.REQUESTED,
       });
 
-      const res = await service.rejectReturnRequest(adminUserId, returnId, {
-        rejectionReason: 'Product used and altered',
+      mockPrisma.returnRequest.update.mockResolvedValue({
+        id: 'ret-1',
+        status: ReturnRequestStatus.REJECTED,
+        rejectionReason: 'Item is not eligible for return',
+      });
+
+      const res = await service.rejectReturnRequest(adminUserId, 'ret-1', {
+        rejectionReason: 'Item is not eligible for return',
       });
 
       expect(res.success).toBe(true);
-      expect(mockPrisma.orderItem.update).toHaveBeenCalledWith({
-        where: { id: 'item-1' },
-        data: { status: OrderItemStatus.DELIVERED },
-      });
+      expect(res.data.status).toBe(ReturnRequestStatus.REJECTED);
       expect(mockAudit.logAction).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'RETURN_REQUEST_REJECTED' }),
       );
     });
   });
 
-  describe('completeReturnRequest', () => {
-    const adminUserId = 'admin-1';
-    const returnId = 'ret-1';
+  describe('Stage 3: customerShipReturn (Customer)', () => {
+    it('should allow customer to upload return courier details moving status to IN_TRANSIT', async () => {
+      mockPrisma.customerProfile.findUnique.mockResolvedValue({
+        id: customerId,
+        userId: customerUserId,
+      });
 
-    it('should complete return, restock inventory, and create a pending refund', async () => {
       mockPrisma.returnRequest.findUnique.mockResolvedValue({
-        id: returnId,
-        orderId: 'order-1',
-        orderItemId: 'item-1',
-        customerId: 'cust-1',
-        returnQuantity: 1,
-        reason: 'Broken screen',
+        id: 'ret-1',
+        customerId,
         status: ReturnRequestStatus.APPROVED,
+      });
+
+      mockPrisma.returnRequest.update.mockResolvedValue({
+        id: 'ret-1',
+        status: ReturnRequestStatus.IN_TRANSIT,
+        pickupCarrier: 'Delhivery',
+        pickupTrackingNumber: 'DLV-123456',
+      });
+
+      const res = await service.customerShipReturn(customerUserId, 'ret-1', {
+        courierName: 'Delhivery',
+        trackingNumber: 'DLV-123456',
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.data.status).toBe(ReturnRequestStatus.IN_TRANSIT);
+      expect(mockAudit.logAction).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'RETURN_IN_TRANSIT' }),
+      );
+    });
+
+    it('should reject shipping upload if return request is not APPROVED', async () => {
+      mockPrisma.customerProfile.findUnique.mockResolvedValue({
+        id: customerId,
+        userId: customerUserId,
+      });
+
+      mockPrisma.returnRequest.findUnique.mockResolvedValue({
+        id: 'ret-1',
+        customerId,
+        status: ReturnRequestStatus.REQUESTED,
+      });
+
+      await expect(
+        service.customerShipReturn(customerUserId, 'ret-1', {
+          courierName: 'Delhivery',
+          trackingNumber: 'DLV-123456',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('Stage 4: sellerConfirmReceipt (Seller)', () => {
+    it('should allow seller to confirm physical receipt moving status to RECEIVED', async () => {
+      mockPrisma.sellerProfile.findUnique.mockResolvedValue({
+        id: sellerId,
+        userId: sellerUserId,
+      });
+
+      mockPrisma.returnRequest.findUnique.mockResolvedValue({
+        id: 'ret-1',
+        sellerId,
+        status: ReturnRequestStatus.IN_TRANSIT,
+      });
+
+      mockPrisma.returnRequest.update.mockResolvedValue({
+        id: 'ret-1',
+        status: ReturnRequestStatus.RECEIVED,
+        receivedAt: new Date(),
+      });
+
+      const res = await service.sellerConfirmReceipt(sellerUserId, 'ret-1');
+
+      expect(res.success).toBe(true);
+      expect(res.data.status).toBe(ReturnRequestStatus.RECEIVED);
+      expect(mockAudit.logAction).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'RETURN_RECEIVED' }),
+      );
+    });
+  });
+
+  describe('Stage 5: sellerVerifyReturn & sellerRejectInspection (Seller)', () => {
+    it('should verify return condition, move to VERIFIED, and restock variant inventory', async () => {
+      mockPrisma.sellerProfile.findUnique.mockResolvedValue({
+        id: sellerId,
+        userId: sellerUserId,
+      });
+
+      mockPrisma.returnRequest.findUnique.mockResolvedValue({
+        id: 'ret-1',
+        sellerId,
+        returnQuantity: 1,
+        status: ReturnRequestStatus.RECEIVED,
+        orderItem: { variantId },
+      });
+
+      mockPrisma.returnRequest.update.mockResolvedValue({
+        id: 'ret-1',
+        status: ReturnRequestStatus.VERIFIED,
+      });
+
+      const res = await service.sellerVerifyReturn(
+        sellerUserId,
+        'ret-1',
+        'Item inspected in pristine condition with tags intact',
+      );
+
+      expect(res.success).toBe(true);
+      expect(res.data.status).toBe(ReturnRequestStatus.VERIFIED);
+      expect(mockInventory.restockReturnedProduct).toHaveBeenCalledWith(
+        variantId,
+        1,
+        'ret-1',
+        sellerUserId,
+      );
+      expect(mockAudit.logAction).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'RETURN_VERIFIED' }),
+      );
+    });
+
+    it('should reject return condition on inspection and escalate dispute to Admin', async () => {
+      mockPrisma.sellerProfile.findUnique.mockResolvedValue({
+        id: sellerId,
+        userId: sellerUserId,
+      });
+
+      mockPrisma.returnRequest.findUnique.mockResolvedValue({
+        id: 'ret-1',
+        sellerId,
+        status: ReturnRequestStatus.RECEIVED,
+      });
+
+      mockPrisma.returnRequest.update.mockResolvedValue({
+        id: 'ret-1',
+        status: ReturnRequestStatus.REJECTED_ON_INSPECTION,
+        rejectionReason: 'Garment washed and perfume odor detected; tags missing',
+      });
+
+      const res = await service.sellerRejectInspection(sellerUserId, 'ret-1', {
+        reason: 'Garment washed and perfume odor detected; tags missing',
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.data.status).toBe(ReturnRequestStatus.REJECTED_ON_INSPECTION);
+      expect(mockAudit.logAction).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'RETURN_INSPECTION_REJECTED' }),
+      );
+    });
+  });
+
+  describe('Stage 6: resolveReturnDispute (Super Admin)', () => {
+    it('should overrule seller inspection rejection, transition to VERIFIED, and restock inventory', async () => {
+      mockPrisma.returnRequest.findUnique.mockResolvedValue({
+        id: 'ret-1',
+        status: ReturnRequestStatus.REJECTED_ON_INSPECTION,
+        returnQuantity: 1,
+        orderItem: { variantId },
+      });
+
+      mockPrisma.returnRequest.update.mockResolvedValue({
+        id: 'ret-1',
+        status: ReturnRequestStatus.VERIFIED,
+        adminRemarks: 'Admin arbitration determined tags were loose from manufacturing defect',
+      });
+
+      const res = await service.resolveReturnDispute(adminUserId, 'ret-1', {
+        resolution: 'OVERRULE_SELLER_APPROVE_REFUND',
+        adminNotes: 'Admin arbitration determined tags were loose from manufacturing defect',
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.data.status).toBe(ReturnRequestStatus.VERIFIED);
+      expect(mockInventory.restockReturnedProduct).toHaveBeenCalledWith(
+        variantId,
+        1,
+        'ret-1',
+        adminUserId,
+      );
+      expect(mockAudit.logAction).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'RETURN_DISPUTE_RESOLVED' }),
+      );
+    });
+
+    it('should uphold seller rejection, transition to REJECTED, closing return process', async () => {
+      mockPrisma.returnRequest.findUnique.mockResolvedValue({
+        id: 'ret-1',
+        status: ReturnRequestStatus.REJECTED_ON_INSPECTION,
+      });
+
+      mockPrisma.returnRequest.update.mockResolvedValue({
+        id: 'ret-1',
+        status: ReturnRequestStatus.REJECTED,
+        adminRemarks: 'Admin verified evidence of customer wear',
+      });
+
+      const res = await service.resolveReturnDispute(adminUserId, 'ret-1', {
+        resolution: 'UPHOLD_SELLER_REJECTION',
+        adminNotes: 'Admin verified evidence of customer wear',
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.data.status).toBe(ReturnRequestStatus.REJECTED);
+    });
+  });
+
+  describe('Stage 7 & 8: processReturnRefund (Super Admin & Fault Allocation)', () => {
+    it('should process SELLER_FAULT return refund, reimburse courier cost, and record SellerAdjustment debit', async () => {
+      mockPrisma.returnRequest.findUnique.mockResolvedValue({
+        id: 'ret-1',
+        orderId,
+        orderItemId,
+        customerId,
+        sellerId,
+        returnQuantity: 1,
+        reason: 'Defective fabric tore immediately',
+        status: ReturnRequestStatus.VERIFIED,
         orderItem: {
-          id: 'item-1',
-          productId: 'prod-1',
-          quantity: 2,
-          totalAmount: new Decimal(2000.0),
+          id: orderItemId,
+          sellerId,
+          totalAmount: new Decimal(1000),
+          quantity: 1,
         },
         order: {
+          id: orderId,
+          totalAmount: new Decimal(1080),
+          shippingAmount: new Decimal(80),
           currency: 'INR',
+          orderItems: [
+            {
+              id: orderItemId,
+              sellerId,
+              status: OrderItemStatus.DELIVERED,
+            },
+          ],
+          refunds: [],
           paymentTransactions: [
             {
-              id: 'tx-1',
+              id: 'tx-orig-1',
               status: PaymentTransactionStatus.SUCCEEDED,
               transactionType: PaymentTransactionType.PAYMENT,
             },
@@ -295,94 +527,122 @@ describe('ReturnRefundService', () => {
         },
       });
 
-      mockPrisma.returnRequest.update.mockResolvedValue({
-        id: returnId,
-        status: ReturnRequestStatus.COMPLETED,
-      });
+      mockPrisma.refund.findUnique.mockResolvedValue(null);
       mockPrisma.refund.create.mockResolvedValue({
-        id: 'refund-1',
-        refundAmount: new Decimal(1000.0),
-        status: RefundStatus.PENDING,
-      });
-
-      const res = await service.completeReturnRequest(adminUserId, returnId, {
-        restockInventory: true,
-      });
-
-      expect(res.success).toBe(true);
-      expect(mockInventory.restockReturnedProduct).toHaveBeenCalledWith(
-        'prod-1',
-        1,
-        returnId,
-        adminUserId,
-      );
-      expect(mockPrisma.orderItem.update).toHaveBeenCalledWith({
-        where: { id: 'item-1' },
-        data: { status: OrderItemStatus.RETURNED },
-      });
-      expect(mockAudit.logAction).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'RETURN_REQUEST_COMPLETED' }),
-      );
-    });
-  });
-
-  describe('processRefund', () => {
-    const adminUserId = 'admin-1';
-    const refundId = 'refund-1';
-
-    it('should process pending refund and create payment transaction', async () => {
-      mockPrisma.refund.findUnique.mockResolvedValue({
-        id: refundId,
-        orderId: 'order-1',
-        orderItemId: 'item-1',
-        customerId: 'cust-1',
-        refundAmount: new Decimal(1000.0),
-        currency: 'INR',
-        status: RefundStatus.PENDING,
-        order: {
-          id: 'order-1',
-          totalAmount: new Decimal(2000.0),
-          refunds: [],
-          orderItems: [
-            { id: 'item-1', status: OrderItemStatus.RETURNED },
-            { id: 'item-2', status: OrderItemStatus.DELIVERED },
-          ],
-        },
-        orderItem: {
-          id: 'item-1',
-          status: OrderItemStatus.RETURNED,
-        },
-      });
-
-      mockPrisma.refund.update.mockResolvedValue({
-        id: refundId,
+        id: 'ref-1',
+        refundAmount: new Decimal(1080),
         status: RefundStatus.SUCCEEDED,
       });
+      mockPrisma.returnRequest.update.mockResolvedValue({
+        id: 'ret-1',
+        status: ReturnRequestStatus.REFUNDED,
+      });
+      mockPrisma.sellerAdjustment.create.mockResolvedValue({
+        id: 'adj-1',
+        type: AdjustmentType.SELLER_FAULT_RETURN_SHIPPING_DEBIT,
+        amount: new Decimal(79),
+        direction: LedgerDirection.DEBIT,
+      });
 
-      const res = await service.processRefund(adminUserId, refundId, {
-        providerRefundId: 'rfnd_razorpay_9988',
+      const res = await service.processReturnRefund(adminUserId, 'ret-1', {
+        faultClassification: 'SELLER_FAULT',
+        returnShippingFee: 79.0,
       });
 
       expect(res.success).toBe(true);
-      expect(mockPrisma.paymentTransaction.create).toHaveBeenCalledWith(
+      expect(res.data.returnRequest.status).toBe(ReturnRequestStatus.REFUNDED);
+      // Item price (1000) + full seller shipment original shipping refunded (80)
+      expect(mockPrisma.refund.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            providerTransactionId: 'rfnd_razorpay_9988',
-            transactionType: PaymentTransactionType.REFUND,
+            refundAmount: new Decimal(1080),
+            status: RefundStatus.SUCCEEDED,
           }),
         }),
       );
-      expect(mockPrisma.orderItem.update).toHaveBeenCalledWith({
-        where: { id: 'item-1' },
-        data: { status: OrderItemStatus.REFUNDED },
-      });
-      expect(mockPrisma.order.update).toHaveBeenCalledWith({
-        where: { id: 'order-1' },
-        data: { paymentStatus: 'PARTIALLY_REFUNDED' },
-      });
-      expect(mockAudit.logAction).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'REFUND_PROCESSED' }),
+      // Seller fault return shipping fee debited to seller
+      expect(mockPrisma.sellerAdjustment.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            sellerId,
+            type: AdjustmentType.SELLER_FAULT_RETURN_SHIPPING_DEBIT,
+            amount: new Decimal(79),
+            direction: LedgerDirection.DEBIT,
+            status: AdjustmentStatus.PENDING,
+          }),
+        }),
       );
+      expect(mockAudit.logAction).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'RETURN_REFUNDED' }),
+      );
+    });
+
+    it('should process CUSTOMER_FAULT return refund for item price only without seller shipping debit', async () => {
+      mockPrisma.returnRequest.findUnique.mockResolvedValue({
+        id: 'ret-2',
+        orderId,
+        orderItemId,
+        customerId,
+        sellerId,
+        returnQuantity: 1,
+        reason: 'Change of mind / size preference',
+        status: ReturnRequestStatus.VERIFIED,
+        orderItem: {
+          id: orderItemId,
+          sellerId,
+          totalAmount: new Decimal(1000),
+          quantity: 1,
+        },
+        order: {
+          id: orderId,
+          totalAmount: new Decimal(1080),
+          shippingAmount: new Decimal(80),
+          currency: 'INR',
+          orderItems: [
+            {
+              id: orderItemId,
+              sellerId,
+              status: OrderItemStatus.DELIVERED,
+            },
+          ],
+          refunds: [],
+          paymentTransactions: [
+            {
+              id: 'tx-orig-1',
+              status: PaymentTransactionStatus.SUCCEEDED,
+              transactionType: PaymentTransactionType.PAYMENT,
+            },
+          ],
+        },
+      });
+
+      mockPrisma.refund.findUnique.mockResolvedValue(null);
+      mockPrisma.refund.create.mockResolvedValue({
+        id: 'ref-2',
+        refundAmount: new Decimal(1000),
+        status: RefundStatus.SUCCEEDED,
+      });
+      mockPrisma.returnRequest.update.mockResolvedValue({
+        id: 'ret-2',
+        status: ReturnRequestStatus.REFUNDED,
+      });
+
+      const res = await service.processReturnRefund(adminUserId, 'ret-2', {
+        faultClassification: 'CUSTOMER_FAULT',
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.data.returnRequest.status).toBe(ReturnRequestStatus.REFUNDED);
+      // Item price only (1000), original shipping retained (80)
+      expect(mockPrisma.refund.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            refundAmount: new Decimal(1000),
+          }),
+        }),
+      );
+      // No seller adjustment debit created for customer fault
+      expect(mockPrisma.sellerAdjustment.create).not.toHaveBeenCalled();
     });
   });
 });

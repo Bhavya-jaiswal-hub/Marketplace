@@ -8,11 +8,13 @@ import {
 import { PrismaService } from '../prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { InventoryService } from '../inventory/inventory.service';
-import { StockAdjustmentMode } from '../inventory/dto';
 import {
   CreateReturnRequestDto,
+  CustomerShipReturnDto,
   ApproveReturnRequestDto,
   RejectReturnRequestDto,
+  SellerRejectInspectionDto,
+  AdminResolveDisputeDto,
   CompleteReturnRequestDto,
   ProcessRefundDto,
   ReturnQueryDto,
@@ -22,10 +24,12 @@ import {
   ReturnRequestStatus,
   RefundStatus,
   OrderItemStatus,
-  OrderStatus,
   PaymentStatus,
   PaymentTransactionStatus,
   PaymentTransactionType,
+  AdjustmentType,
+  LedgerDirection,
+  AdjustmentStatus,
 } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 
@@ -39,7 +43,7 @@ export class ReturnRefundService {
     private readonly inventoryService: InventoryService,
   ) {}
 
-  // ================= 1. CUSTOMER RETURN REQUEST WORKFLOW =================
+  // ================= 1. CUSTOMER RETURN WORKFLOW =================
 
   async createReturnRequest(
     userId: string,
@@ -81,8 +85,8 @@ export class ReturnRefundService {
       throw new BadRequestException('Item delivery timestamp is missing');
     }
 
-    // 5-day return window verification
-    const returnWindowMs = 5 * 24 * 60 * 60 * 1000;
+    // 5-day return window verification (120 hours against UTC deliveredAt)
+    const returnWindowMs = 120 * 60 * 60 * 1000;
     const timeSinceDelivery = Date.now() - new Date(orderItem.deliveredAt).getTime();
     if (timeSinceDelivery > returnWindowMs) {
       throw new BadRequestException(
@@ -90,7 +94,8 @@ export class ReturnRefundService {
       );
     }
 
-    if (dto.returnQuantity <= 0 || dto.returnQuantity > orderItem.quantity) {
+    const returnQty = dto.returnQuantity ?? 1;
+    if (returnQty <= 0 || returnQty > orderItem.quantity) {
       throw new BadRequestException(
         `Invalid return quantity. Eligible return quantity is between 1 and ${orderItem.quantity}`,
       );
@@ -98,15 +103,23 @@ export class ReturnRefundService {
 
     // Check for existing active return request
     const existingActiveRequest = orderItem.returnRequests.find(
-      (r) =>
-        r.status !== ReturnRequestStatus.REJECTED &&
-        r.status !== ReturnRequestStatus.CANCELLED,
+      (r) => r.status !== ReturnRequestStatus.REJECTED,
     );
     if (existingActiveRequest) {
       throw new BadRequestException(
         `An active return request (${existingActiveRequest.status}) already exists for this item`,
       );
     }
+
+    // Construct customer comments with metadata if present
+    const commentsParts: string[] = [];
+    if (dto.reasonCategory) commentsParts.push(`Category: ${dto.reasonCategory}`);
+    if (dto.faultClassification) commentsParts.push(`Fault: ${dto.faultClassification}`);
+    if (dto.customerComments) commentsParts.push(dto.customerComments.trim());
+    if (dto.photoUrls && dto.photoUrls.length > 0) {
+      commentsParts.push(`Photos: ${dto.photoUrls.join(', ')}`);
+    }
+    const fullComments = commentsParts.length > 0 ? commentsParts.join(' | ') : null;
 
     const returnRequest = await this.prisma.$transaction(async (tx) => {
       const created = await tx.returnRequest.create({
@@ -115,23 +128,18 @@ export class ReturnRefundService {
           orderItemId: orderItem.id,
           customerId: customer.id,
           sellerId: orderItem.sellerId,
-          returnQuantity: dto.returnQuantity,
+          returnQuantity: returnQty,
           reason: dto.reason.trim(),
-          customerComments: dto.customerComments?.trim() || null,
-          status: ReturnRequestStatus.PENDING,
+          customerComments: fullComments,
+          status: ReturnRequestStatus.REQUESTED,
         },
-      });
-
-      await tx.orderItem.update({
-        where: { id: orderItem.id },
-        data: { status: OrderItemStatus.RETURN_REQUESTED },
       });
 
       await tx.orderItemHistory.create({
         data: {
           orderItemId: orderItem.id,
           previousStatus: OrderItemStatus.DELIVERED,
-          newStatus: OrderItemStatus.RETURN_REQUESTED,
+          newStatus: OrderItemStatus.DELIVERED,
           eventType: 'RETURN_REQUESTED',
           reason: dto.reason.trim(),
           changedBy: userId,
@@ -149,7 +157,7 @@ export class ReturnRefundService {
       newValue: {
         orderId,
         orderItemId,
-        returnQuantity: dto.returnQuantity,
+        returnQuantity: returnQty,
         reason: dto.reason,
       },
     });
@@ -158,6 +166,65 @@ export class ReturnRefundService {
       success: true,
       data: returnRequest,
       message: 'Return request submitted successfully',
+    };
+  }
+
+  async customerShipReturn(
+    userId: string,
+    returnRequestId: string,
+    dto: CustomerShipReturnDto,
+  ): Promise<any> {
+    const customer = await this.prisma.customerProfile.findUnique({
+      where: { userId },
+    });
+    if (!customer) {
+      throw new NotFoundException('Customer profile not found');
+    }
+
+    const returnRequest = await this.prisma.returnRequest.findUnique({
+      where: { id: returnRequestId },
+      include: { orderItem: true },
+    });
+
+    if (!returnRequest || returnRequest.customerId !== customer.id) {
+      throw new NotFoundException('Return request not found');
+    }
+
+    if (returnRequest.status !== ReturnRequestStatus.APPROVED) {
+      throw new BadRequestException(
+        `Cannot ship return package in '${returnRequest.status}' status. Must be APPROVED`,
+      );
+    }
+
+    const courier = dto.courierName.trim();
+    const tracking = dto.trackingNumber.trim();
+
+    const updated = await this.prisma.returnRequest.update({
+      where: { id: returnRequestId },
+      data: {
+        status: ReturnRequestStatus.IN_TRANSIT,
+        pickupCarrier: courier,
+        pickupTrackingNumber: tracking,
+      },
+    });
+
+    await this.auditService.logAction({
+      userId,
+      action: 'RETURN_IN_TRANSIT',
+      resourceType: 'ReturnRequest',
+      resourceId: returnRequestId,
+      previousValue: { status: ReturnRequestStatus.APPROVED },
+      newValue: {
+        status: ReturnRequestStatus.IN_TRANSIT,
+        courier,
+        tracking,
+      },
+    });
+
+    return {
+      success: true,
+      data: updated,
+      message: 'Return shipment tracking details recorded. Status updated to IN_TRANSIT',
     };
   }
 
@@ -222,6 +289,7 @@ export class ReturnRefundService {
         order: true,
         seller: { select: { id: true, displayName: true, businessName: true } },
         refund: true,
+        adjustments: true,
       },
     });
 
@@ -236,7 +304,7 @@ export class ReturnRefundService {
     };
   }
 
-  // ================= 2. SELLER RETURN LOOKUP WORKFLOW =================
+  // ================= 2. SELLER INSPECTION WORKFLOW =================
 
   async getSellerReturns(userId: string, query: ReturnQueryDto): Promise<any> {
     const seller = await this.prisma.sellerProfile.findUnique({
@@ -299,6 +367,7 @@ export class ReturnRefundService {
         order: true,
         customer: { select: { id: true, firstName: true, lastName: true } },
         refund: true,
+        adjustments: true,
       },
     });
 
@@ -313,7 +382,189 @@ export class ReturnRefundService {
     };
   }
 
-  // ================= 3. SUPER ADMIN RETURN APPROVAL WORKFLOW =================
+  async sellerConfirmReceipt(userId: string, returnRequestId: string): Promise<any> {
+    const seller = await this.prisma.sellerProfile.findUnique({
+      where: { userId },
+    });
+    if (!seller) {
+      throw new NotFoundException('Seller profile not found');
+    }
+
+    const returnRequest = await this.prisma.returnRequest.findUnique({
+      where: { id: returnRequestId },
+      include: { orderItem: true },
+    });
+
+    if (!returnRequest || returnRequest.sellerId !== seller.id) {
+      throw new NotFoundException('Return request not found');
+    }
+
+    if (returnRequest.status !== ReturnRequestStatus.IN_TRANSIT) {
+      throw new BadRequestException(
+        `Cannot confirm receipt for return in '${returnRequest.status}' status. Must be IN_TRANSIT`,
+      );
+    }
+
+    const updated = await this.prisma.returnRequest.update({
+      where: { id: returnRequestId },
+      data: {
+        status: ReturnRequestStatus.RECEIVED,
+        receivedAt: new Date(),
+      },
+    });
+
+    await this.auditService.logAction({
+      userId,
+      action: 'RETURN_RECEIVED',
+      resourceType: 'ReturnRequest',
+      resourceId: returnRequestId,
+      previousValue: { status: ReturnRequestStatus.IN_TRANSIT },
+      newValue: { status: ReturnRequestStatus.RECEIVED },
+    });
+
+    return {
+      success: true,
+      data: updated,
+      message: 'Package receipt confirmed. Status updated to RECEIVED',
+    };
+  }
+
+  async sellerVerifyReturn(
+    userId: string,
+    returnRequestId: string,
+    comments?: string,
+  ): Promise<any> {
+    const seller = await this.prisma.sellerProfile.findUnique({
+      where: { userId },
+    });
+    if (!seller) {
+      throw new NotFoundException('Seller profile not found');
+    }
+
+    const returnRequest = await this.prisma.returnRequest.findUnique({
+      where: { id: returnRequestId },
+      include: { orderItem: true },
+    });
+
+    if (!returnRequest || returnRequest.sellerId !== seller.id) {
+      throw new NotFoundException('Return request not found');
+    }
+
+    if (returnRequest.status !== ReturnRequestStatus.RECEIVED) {
+      throw new BadRequestException(
+        `Cannot verify return condition in '${returnRequest.status}' status. Must be RECEIVED`,
+      );
+    }
+
+    const updated = await this.prisma.returnRequest.update({
+      where: { id: returnRequestId },
+      data: {
+        status: ReturnRequestStatus.VERIFIED,
+        sellerComments: comments?.trim() || 'Condition verified and accepted by seller',
+      },
+    });
+
+    // Restock variant inventory upon verification
+    const orderItem = returnRequest.orderItem;
+    if (orderItem && orderItem.variantId) {
+      try {
+        await this.inventoryService.restockReturnedProduct(
+          orderItem.variantId,
+          returnRequest.returnQuantity,
+          returnRequestId,
+          userId,
+        );
+      } catch (err: any) {
+        this.logger.warn(
+          `Could not automatically restock inventory for variant ${orderItem.variantId}: ${err?.message || err}`,
+        );
+      }
+    }
+
+    await this.auditService.logAction({
+      userId,
+      action: 'RETURN_VERIFIED',
+      resourceType: 'ReturnRequest',
+      resourceId: returnRequestId,
+      previousValue: { status: ReturnRequestStatus.RECEIVED },
+      newValue: {
+        status: ReturnRequestStatus.VERIFIED,
+        comments,
+      },
+    });
+
+    return {
+      success: true,
+      data: updated,
+      message: 'Return verified and accepted. Ready for Super Admin refund processing',
+    };
+  }
+
+  async sellerRejectInspection(
+    userId: string,
+    returnRequestId: string,
+    dto: SellerRejectInspectionDto,
+  ): Promise<any> {
+    const seller = await this.prisma.sellerProfile.findUnique({
+      where: { userId },
+    });
+    if (!seller) {
+      throw new NotFoundException('Seller profile not found');
+    }
+
+    const returnRequest = await this.prisma.returnRequest.findUnique({
+      where: { id: returnRequestId },
+      include: { orderItem: true },
+    });
+
+    if (!returnRequest || returnRequest.sellerId !== seller.id) {
+      throw new NotFoundException('Return request not found');
+    }
+
+    if (returnRequest.status !== ReturnRequestStatus.RECEIVED) {
+      throw new BadRequestException(
+        `Cannot reject return inspection in '${returnRequest.status}' status. Must be RECEIVED`,
+      );
+    }
+
+    const reason = dto.reason.trim();
+    if (!reason) {
+      throw new BadRequestException('A mandatory explanation must be provided when rejecting a return inspection');
+    }
+
+    const fullComments = dto.photoUrls && dto.photoUrls.length > 0
+      ? `${reason} | Photos: ${dto.photoUrls.join(', ')}`
+      : reason;
+
+    const updated = await this.prisma.returnRequest.update({
+      where: { id: returnRequestId },
+      data: {
+        status: ReturnRequestStatus.REJECTED_ON_INSPECTION,
+        sellerComments: fullComments,
+        rejectionReason: reason,
+      },
+    });
+
+    await this.auditService.logAction({
+      userId,
+      action: 'RETURN_INSPECTION_REJECTED',
+      resourceType: 'ReturnRequest',
+      resourceId: returnRequestId,
+      previousValue: { status: ReturnRequestStatus.RECEIVED },
+      newValue: {
+        status: ReturnRequestStatus.REJECTED_ON_INSPECTION,
+        reason,
+      },
+    });
+
+    return {
+      success: true,
+      data: updated,
+      message: 'Return rejected on inspection. Dispute escalated to Super Admin for arbitration',
+    };
+  }
+
+  // ================= 3. SUPER ADMIN RETURN & DISPUTE WORKFLOW =================
 
   async getAdminReturns(query: ReturnQueryDto): Promise<any> {
     const page = query.page || 1;
@@ -337,6 +588,7 @@ export class ReturnRefundService {
           customer: { select: { id: true, firstName: true, lastName: true, user: { select: { email: true } } } },
           seller: { select: { id: true, displayName: true, businessName: true } },
           refund: true,
+          adjustments: true,
         },
       }),
       this.prisma.returnRequest.count({ where: whereClause }),
@@ -366,6 +618,7 @@ export class ReturnRefundService {
         customer: { select: { id: true, firstName: true, lastName: true, user: { select: { email: true } } } },
         seller: { select: { id: true, displayName: true, businessName: true } },
         refund: true,
+        adjustments: true,
       },
     });
 
@@ -394,24 +647,20 @@ export class ReturnRefundService {
       throw new NotFoundException('Return request not found');
     }
 
-    if (returnRequest.status !== ReturnRequestStatus.PENDING) {
+    if (returnRequest.status !== ReturnRequestStatus.REQUESTED) {
       throw new BadRequestException(
-        `Cannot approve return request in '${returnRequest.status}' status. Must be PENDING`,
+        `Cannot approve return request in '${returnRequest.status}' status. Must be REQUESTED`,
       );
     }
-
-    const nextStatus = dto.pickupCarrier
-      ? ReturnRequestStatus.PICKUP_SCHEDULED
-      : ReturnRequestStatus.APPROVED;
 
     const updated = await this.prisma.returnRequest.update({
       where: { id: returnId },
       data: {
-        status: nextStatus,
+        status: ReturnRequestStatus.APPROVED,
         pickupCarrier: dto.pickupCarrier?.trim() || null,
         pickupTrackingNumber: dto.pickupTrackingNumber?.trim() || null,
         pickupScheduledAt: dto.pickupScheduledAt ? new Date(dto.pickupScheduledAt) : null,
-        adminRemarks: dto.adminRemarks?.trim() || null,
+        adminRemarks: dto.adminRemarks?.trim() || 'Approved by Super Admin',
       },
     });
 
@@ -420,9 +669,9 @@ export class ReturnRefundService {
       action: 'RETURN_REQUEST_APPROVED',
       resourceType: 'ReturnRequest',
       resourceId: returnId,
-      previousValue: { status: ReturnRequestStatus.PENDING },
+      previousValue: { status: ReturnRequestStatus.REQUESTED },
       newValue: {
-        status: nextStatus,
+        status: ReturnRequestStatus.APPROVED,
         pickupCarrier: dto.pickupCarrier,
         pickupTrackingNumber: dto.pickupTrackingNumber,
       },
@@ -431,7 +680,7 @@ export class ReturnRefundService {
     return {
       success: true,
       data: updated,
-      message: `Return request approved successfully (${nextStatus})`,
+      message: 'Return request approved successfully (APPROVED)',
     };
   }
 
@@ -449,40 +698,19 @@ export class ReturnRefundService {
       throw new NotFoundException('Return request not found');
     }
 
-    if (returnRequest.status !== ReturnRequestStatus.PENDING) {
+    if (returnRequest.status !== ReturnRequestStatus.REQUESTED) {
       throw new BadRequestException(
-        `Cannot reject return request in '${returnRequest.status}' status. Must be PENDING`,
+        `Cannot reject return request in '${returnRequest.status}' status. Must be REQUESTED`,
       );
     }
 
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const rejected = await tx.returnRequest.update({
-        where: { id: returnId },
-        data: {
-          status: ReturnRequestStatus.REJECTED,
-          rejectionReason: dto.rejectionReason.trim(),
-          adminRemarks: dto.adminRemarks?.trim() || null,
-        },
-      });
-
-      // Restore order item status back to DELIVERED
-      await tx.orderItem.update({
-        where: { id: returnRequest.orderItemId },
-        data: { status: OrderItemStatus.DELIVERED },
-      });
-
-      await tx.orderItemHistory.create({
-        data: {
-          orderItemId: returnRequest.orderItemId,
-          previousStatus: OrderItemStatus.RETURN_REQUESTED,
-          newStatus: OrderItemStatus.DELIVERED,
-          eventType: 'RETURN_REJECTED',
-          reason: dto.rejectionReason.trim(),
-          changedBy: adminUserId,
-        },
-      });
-
-      return rejected;
+    const updated = await this.prisma.returnRequest.update({
+      where: { id: returnId },
+      data: {
+        status: ReturnRequestStatus.REJECTED,
+        rejectionReason: dto.rejectionReason.trim(),
+        adminRemarks: dto.adminRemarks?.trim() || null,
+      },
     });
 
     await this.auditService.logAction({
@@ -490,7 +718,7 @@ export class ReturnRefundService {
       action: 'RETURN_REQUEST_REJECTED',
       resourceType: 'ReturnRequest',
       resourceId: returnId,
-      previousValue: { status: ReturnRequestStatus.PENDING },
+      previousValue: { status: ReturnRequestStatus.REQUESTED },
       newValue: {
         status: ReturnRequestStatus.REJECTED,
         rejectionReason: dto.rejectionReason,
@@ -504,17 +732,99 @@ export class ReturnRefundService {
     };
   }
 
-  async completeReturnRequest(
+  async resolveReturnDispute(
     adminUserId: string,
     returnId: string,
-    dto: CompleteReturnRequestDto,
+    dto: AdminResolveDisputeDto,
   ): Promise<any> {
     const returnRequest = await this.prisma.returnRequest.findUnique({
       where: { id: returnId },
       include: {
         orderItem: true,
-        order: { include: { paymentTransactions: true } },
+        order: true,
       },
+    });
+
+    if (!returnRequest) {
+      throw new NotFoundException('Return request not found');
+    }
+
+    if (returnRequest.status !== ReturnRequestStatus.REJECTED_ON_INSPECTION) {
+      throw new BadRequestException(
+        `Cannot resolve dispute for return request in '${returnRequest.status}' status. Must be REJECTED_ON_INSPECTION`,
+      );
+    }
+
+    const resolution = dto.resolution;
+    let nextStatus: ReturnRequestStatus;
+    let adminNotes = dto.adminNotes?.trim() || '';
+
+    if (resolution === 'OVERRULE_SELLER_APPROVE_REFUND') {
+      nextStatus = ReturnRequestStatus.VERIFIED;
+      adminNotes = adminNotes || 'Super Admin overruled seller rejection and approved refund';
+
+      // Optionally restock inventory if product was preserved
+      const orderItem = returnRequest.orderItem;
+      if (orderItem && orderItem.variantId) {
+        try {
+          await this.inventoryService.restockReturnedProduct(
+            orderItem.variantId,
+            returnRequest.returnQuantity,
+            returnId,
+            adminUserId,
+          );
+        } catch (err: any) {
+          this.logger.warn(`Could not restock returned product: ${err?.message || err}`);
+        }
+      }
+    } else if (resolution === 'UPHOLD_SELLER_REJECTION') {
+      nextStatus = ReturnRequestStatus.REJECTED;
+      adminNotes = adminNotes || 'Super Admin upheld seller rejection. Return process closed';
+    } else {
+      throw new BadRequestException(
+        `Invalid dispute resolution '${resolution}'. Must be 'OVERRULE_SELLER_APPROVE_REFUND' or 'UPHOLD_SELLER_REJECTION'`,
+      );
+    }
+
+    const updated = await this.prisma.returnRequest.update({
+      where: { id: returnId },
+      data: {
+        status: nextStatus,
+        adminRemarks: adminNotes,
+      },
+    });
+
+    await this.auditService.logAction({
+      userId: adminUserId,
+      action: 'RETURN_DISPUTE_RESOLVED',
+      resourceType: 'ReturnRequest',
+      resourceId: returnId,
+      previousValue: { status: ReturnRequestStatus.REJECTED_ON_INSPECTION },
+      newValue: {
+        status: nextStatus,
+        resolution,
+        adminNotes,
+      },
+    });
+
+    return {
+      success: true,
+      data: updated,
+      message: `Inspection dispute arbitrated successfully (${nextStatus})`,
+    };
+  }
+
+  // ================= 4. REFUND PROCESSING WORKFLOW =================
+
+  async completeReturnRequest(
+    adminUserId: string,
+    returnId: string,
+    dto: CompleteReturnRequestDto,
+  ): Promise<any> {
+    // Legacy bridge: if return is APPROVED or RECEIVED, verify and complete
+    const returnRequest = await this.prisma.returnRequest.findUnique({
+      where: { id: returnId },
+      include: { orderItem: true },
     });
 
     if (!returnRequest) {
@@ -523,110 +833,249 @@ export class ReturnRefundService {
 
     if (
       returnRequest.status !== ReturnRequestStatus.APPROVED &&
-      returnRequest.status !== ReturnRequestStatus.PICKUP_SCHEDULED &&
-      returnRequest.status !== ReturnRequestStatus.RECEIVED
+      returnRequest.status !== ReturnRequestStatus.IN_TRANSIT &&
+      returnRequest.status !== ReturnRequestStatus.RECEIVED &&
+      returnRequest.status !== ReturnRequestStatus.VERIFIED
     ) {
       throw new BadRequestException(
-        `Cannot complete return request in '${returnRequest.status}' status. Must be APPROVED, PICKUP_SCHEDULED, or RECEIVED`,
+        `Cannot complete return request in '${returnRequest.status}' status`,
       );
     }
 
-    const orderItem = returnRequest.orderItem;
-    // Calculate refundable amount proportionally for the item
-    const itemTotal = Number(orderItem.totalAmount);
-    const itemQty = orderItem.quantity;
-    const returnQty = returnRequest.returnQuantity;
-    const calculatedRefundAmount = Number(((itemTotal / itemQty) * returnQty).toFixed(2));
-
-    const result = await this.prisma.$transaction(async (tx) => {
-      // 1. Mark return request COMPLETED
-      const completedReturn = await tx.returnRequest.update({
+    // Move to VERIFIED first if not already
+    if (returnRequest.status !== ReturnRequestStatus.VERIFIED) {
+      await this.prisma.returnRequest.update({
         where: { id: returnId },
         data: {
-          status: ReturnRequestStatus.COMPLETED,
-          receivedAt: new Date(),
-          completedAt: new Date(),
+          status: ReturnRequestStatus.VERIFIED,
+          receivedAt: returnRequest.receivedAt || new Date(),
           adminRemarks: dto.adminRemarks?.trim() || returnRequest.adminRemarks,
         },
       });
 
-      // 2. Update OrderItem status to RETURNED
-      await tx.orderItem.update({
-        where: { id: orderItem.id },
-        data: { status: OrderItemStatus.RETURNED },
-      });
-
-      await tx.orderItemHistory.create({
-        data: {
-          orderItemId: orderItem.id,
-          previousStatus: orderItem.status,
-          newStatus: OrderItemStatus.RETURNED,
-          eventType: 'RETURN_COMPLETED',
-          reason: `Return inspection completed for request ${returnId}`,
-          changedBy: adminUserId,
-        },
-      });
-
-      // 3. Create Refund record in PENDING status
-      const originalTx = returnRequest.order.paymentTransactions.find(
-        (t) => t.status === PaymentTransactionStatus.SUCCEEDED && t.transactionType === PaymentTransactionType.PAYMENT,
-      );
-
-      const createdRefund = await tx.refund.create({
-        data: {
-          orderId: returnRequest.orderId,
-          orderItemId: returnRequest.orderItemId,
-          returnRequestId: returnRequest.id,
-          customerId: returnRequest.customerId,
-          paymentTransactionId: originalTx ? originalTx.id : null,
-          refundAmount: new Decimal(calculatedRefundAmount),
-          currency: returnRequest.order.currency,
-          refundReason: `Return accepted: ${returnRequest.reason}`,
-          status: RefundStatus.PENDING,
-        },
-      });
-
-      return { completedReturn, createdRefund };
-    });
-
-    // 4. If restock requested (default true), adjust inventory
-    if (dto.restockInventory !== false) {
-      try {
-        await this.inventoryService.restockReturnedProduct(
-          orderItem.productId,
-          returnRequest.returnQuantity,
-          returnId,
-          adminUserId,
-        );
-      } catch (err: any) {
-        this.logger.warn(`Could not automatically restock inventory for product ${orderItem.productId}: ${err?.message || err}`);
+      if (dto.restockInventory !== false && returnRequest.orderItem?.variantId) {
+        try {
+          await this.inventoryService.restockReturnedProduct(
+            returnRequest.orderItem.variantId,
+            returnRequest.returnQuantity,
+            returnId,
+            adminUserId,
+          );
+        } catch (err: any) {
+          this.logger.warn(`Could not restock returned product: ${err?.message || err}`);
+        }
       }
     }
 
+    return this.processReturnRefund(adminUserId, returnId, {
+      payoutNotes: dto.adminRemarks,
+    });
+  }
+
+  async processReturnRefund(
+    adminUserId: string,
+    returnId: string,
+    dto: ProcessRefundDto,
+  ): Promise<any> {
+    const returnRequest = await this.prisma.returnRequest.findUnique({
+      where: { id: returnId },
+      include: {
+        orderItem: true,
+        order: {
+          include: {
+            orderItems: true,
+            refunds: true,
+            paymentTransactions: true,
+          },
+        },
+      },
+    });
+
+    if (!returnRequest) {
+      throw new NotFoundException('Return request not found');
+    }
+
+    if (returnRequest.status !== ReturnRequestStatus.VERIFIED) {
+      throw new BadRequestException(
+        `Cannot process refund for return request in '${returnRequest.status}' status. Must be VERIFIED`,
+      );
+    }
+
+    const orderItem = returnRequest.orderItem;
+    const order = returnRequest.order;
+
+    // 1. Calculate item price refund (proportional to returned quantity)
+    const itemTotal = Number(orderItem.totalAmount);
+    const itemQty = orderItem.quantity;
+    const returnQty = returnRequest.returnQuantity;
+    const itemRefundAmount = Number(((itemTotal / itemQty) * returnQty).toFixed(2));
+
+    // Determine fault classification:
+    // Seller Fault reasons: defective, damaged, wrong item/size, not as listed, or explicit SELLER_FAULT in DTO/reason
+    const reasonLower = (returnRequest.reason + ' ' + (returnRequest.customerComments || '')).toLowerCase();
+    const isSellerFault =
+      dto.faultClassification === 'SELLER_FAULT' ||
+      reasonLower.includes('defective') ||
+      reasonLower.includes('damaged') ||
+      reasonLower.includes('wrong') ||
+      reasonLower.includes('fault: seller_fault') ||
+      dto.faultClassification !== 'CUSTOMER_FAULT';
+
+    // 2. Original Shipping Fee Refund Rule:
+    // Original shipping is refunded IF AND ONLY IF all items in that seller's shipment were returned/cancelled due to seller fault.
+    let originalShippingRefund = 0;
+    if (isSellerFault) {
+      const sellerItems = order.orderItems.filter((i) => i.sellerId === returnRequest.sellerId);
+      const otherSellerItems = sellerItems.filter((i) => i.id !== orderItem.id);
+      const allOthersCancelledOrReturned = otherSellerItems.every(
+        (i) => i.status === OrderItemStatus.CANCELLED,
+      );
+
+      if (allOthersCancelledOrReturned) {
+        // If all items for this seller are returned or cancelled, original shipping portion may be refunded
+        // Check if shipping fee was already refunded in previous refunds
+        const shippingFee = Number(order.shippingAmount || 0);
+        const hasRefundedShipping = order.refunds.some(
+          (rf) => rf.status === RefundStatus.SUCCEEDED && Number(rf.refundAmount) > itemTotal,
+        );
+        if (!hasRefundedShipping && shippingFee > 0) {
+          originalShippingRefund = shippingFee;
+        }
+      }
+    }
+
+    const totalRefundAmount = Number((itemRefundAmount + originalShippingRefund).toFixed(2));
+    const providerRefundId = dto.providerRefundId?.trim() || `REF-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const returnShippingFee = dto.returnShippingFee ?? (isSellerFault ? 79.0 : 0);
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      // A. Create/Update Refund record
+      let refund = await tx.refund.findUnique({
+        where: { returnRequestId: returnRequest.id },
+      });
+
+      const originalTx = order.paymentTransactions.find(
+        (t) =>
+          t.status === PaymentTransactionStatus.SUCCEEDED &&
+          t.transactionType === PaymentTransactionType.PAYMENT,
+      );
+
+      if (!refund) {
+        refund = await tx.refund.create({
+          data: {
+            orderId: returnRequest.orderId,
+            orderItemId: returnRequest.orderItemId,
+            returnRequestId: returnRequest.id,
+            customerId: returnRequest.customerId,
+            paymentTransactionId: originalTx ? originalTx.id : null,
+            refundAmount: new Decimal(totalRefundAmount),
+            currency: order.currency || 'INR',
+            refundReason: `Return accepted: ${returnRequest.reason}`,
+            status: RefundStatus.SUCCEEDED,
+            providerRefundId,
+            processedById: adminUserId,
+            processedAt: new Date(),
+          },
+        });
+      } else {
+        refund = await tx.refund.update({
+          where: { id: refund.id },
+          data: {
+            status: RefundStatus.SUCCEEDED,
+            refundAmount: new Decimal(totalRefundAmount),
+            providerRefundId,
+            processedById: adminUserId,
+            processedAt: new Date(),
+          },
+        });
+      }
+
+      // B. Create PaymentTransaction of type REFUND
+      await tx.paymentTransaction.create({
+        data: {
+          orderId: order.id,
+          customerId: returnRequest.customerId,
+          paymentReference: `REF-TX-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`,
+          providerTransactionId: providerRefundId,
+          amount: new Decimal(totalRefundAmount),
+          currency: order.currency || 'INR',
+          status: PaymentTransactionStatus.SUCCEEDED,
+          transactionType: PaymentTransactionType.REFUND,
+          processedAt: new Date(),
+        },
+      });
+
+      // C. Mark ReturnRequest as REFUNDED
+      const updatedReturn = await tx.returnRequest.update({
+        where: { id: returnId },
+        data: {
+          status: ReturnRequestStatus.REFUNDED,
+          completedAt: new Date(),
+          adminRemarks: dto.payoutNotes?.trim() || returnRequest.adminRemarks,
+        },
+      });
+
+      // D. If Seller Fault, create SELLER_FAULT_RETURN_SHIPPING_DEBIT in SellerAdjustment
+      if (isSellerFault && returnShippingFee > 0) {
+        await tx.sellerAdjustment.create({
+          data: {
+            sellerId: returnRequest.sellerId,
+            type: AdjustmentType.SELLER_FAULT_RETURN_SHIPPING_DEBIT,
+            amount: new Decimal(returnShippingFee),
+            direction: LedgerDirection.DEBIT,
+            status: AdjustmentStatus.PENDING,
+            reason: `Return shipping debit for seller-fault return ${returnRequest.id}`,
+            orderItemId: returnRequest.orderItemId,
+            returnRequestId: returnRequest.id,
+          },
+        });
+      }
+
+      // E. Update parent Order payment status
+      const existingRefundedAmount = order.refunds
+        .filter((r) => r.status === RefundStatus.SUCCEEDED && r.id !== refund!.id)
+        .reduce((sum, r) => sum + Number(r.refundAmount), 0);
+
+      const totalRefundedNow = existingRefundedAmount + totalRefundAmount;
+      const orderTotal = Number(order.totalAmount);
+      const newPaymentStatus =
+        totalRefundedNow >= orderTotal
+          ? PaymentStatus.REFUNDED
+          : PaymentStatus.PARTIALLY_REFUNDED;
+
+      await tx.order.update({
+        where: { id: order.id },
+        data: { paymentStatus: newPaymentStatus },
+      });
+
+      return { updatedReturn, refund };
+    });
+
     await this.auditService.logAction({
       userId: adminUserId,
-      action: 'RETURN_REQUEST_COMPLETED',
+      action: 'RETURN_REFUNDED',
       resourceType: 'ReturnRequest',
       resourceId: returnId,
       newValue: {
         returnRequestId: returnId,
-        refundId: result.createdRefund.id,
-        refundAmount: calculatedRefundAmount,
-        restocked: dto.restockInventory !== false,
+        refundId: result.refund.id,
+        refundAmount: totalRefundAmount,
+        providerRefundId,
+        isSellerFault,
+        returnShippingFee: isSellerFault ? returnShippingFee : 0,
       },
     });
 
     return {
       success: true,
       data: {
-        returnRequest: result.completedReturn,
-        refund: result.createdRefund,
+        returnRequest: result.updatedReturn,
+        refund: result.refund,
       },
-      message: 'Return request completed and pending refund created successfully',
+      message: 'Return refund processed successfully via payment gateway',
     };
   }
-
-  // ================= 4. REFUND WORKFLOW =================
 
   async getAdminRefunds(query: RefundQueryDto): Promise<any> {
     const page = query.page || 1;
@@ -759,6 +1208,7 @@ export class ReturnRefundService {
           },
         },
         orderItem: true,
+        returnRequest: true,
       },
     });
 
@@ -770,45 +1220,26 @@ export class ReturnRefundService {
       throw new BadRequestException('Refund has already been processed successfully');
     }
 
-    if (refund.status !== RefundStatus.PENDING && refund.status !== RefundStatus.PROCESSING) {
-      throw new BadRequestException(
-        `Cannot process refund in '${refund.status}' status. Must be PENDING or PROCESSING`,
-      );
-    }
-
-    // Check that total refunded does not exceed total paid
-    const orderTotal = Number(refund.order.totalAmount);
-    const existingRefundedAmount = refund.order.refunds
-      .filter((r) => r.status === RefundStatus.SUCCEEDED && r.id !== refund.id)
-      .reduce((sum, r) => sum + Number(r.refundAmount), 0);
-
-    const currentRefundAmount = Number(refund.refundAmount);
-    if (existingRefundedAmount + currentRefundAmount > orderTotal) {
-      throw new BadRequestException(
-        `Refund amount exceeds order total. Order Total: ₹${orderTotal}, Previously Refunded: ₹${existingRefundedAmount}, Attempted Refund: ₹${currentRefundAmount}`,
-      );
-    }
+    const providerRefundId = dto.providerRefundId?.trim() || `REF-${Date.now()}`;
 
     const result = await this.prisma.$transaction(async (tx) => {
-      // 1. Update Refund to SUCCEEDED
       const updatedRefund = await tx.refund.update({
         where: { id: refundId },
         data: {
           status: RefundStatus.SUCCEEDED,
-          providerRefundId: dto.providerRefundId.trim(),
+          providerRefundId,
           processedAt: new Date(),
           processedById: adminUserId,
           rawResponse: dto.rawResponse || null,
         },
       });
 
-      // 2. Create PaymentTransaction record of type REFUND
       await tx.paymentTransaction.create({
         data: {
           orderId: refund.orderId,
           customerId: refund.customerId,
           paymentReference: `REF-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`,
-          providerTransactionId: dto.providerRefundId.trim(),
+          providerTransactionId: providerRefundId,
           amount: refund.refundAmount,
           currency: refund.currency,
           status: PaymentTransactionStatus.SUCCEEDED,
@@ -818,47 +1249,29 @@ export class ReturnRefundService {
         },
       });
 
-      // 3. Update OrderItem status if applicable
-      if (refund.orderItemId) {
-        await tx.orderItem.update({
-          where: { id: refund.orderItemId },
-          data: { status: OrderItemStatus.REFUNDED },
-        });
-
-        await tx.orderItemHistory.create({
+      if (refund.returnRequestId) {
+        await tx.returnRequest.update({
+          where: { id: refund.returnRequestId },
           data: {
-            orderItemId: refund.orderItemId,
-            previousStatus: refund.orderItem?.status || OrderItemStatus.RETURNED,
-            newStatus: OrderItemStatus.REFUNDED,
-            eventType: 'ITEM_REFUNDED',
-            reason: `Refund processed: ${dto.providerRefundId}`,
-            changedBy: adminUserId,
+            status: ReturnRequestStatus.REFUNDED,
+            completedAt: new Date(),
           },
         });
       }
 
-      // 4. Update parent Order payment status
-      const totalRefundedNow = existingRefundedAmount + currentRefundAmount;
-      const newPaymentStatus =
-        totalRefundedNow >= orderTotal
-          ? PaymentStatus.REFUNDED
-          : PaymentStatus.PARTIALLY_REFUNDED;
-
-      const orderItems = refund.order.orderItems;
-      const allItemsRefundedOrCancelled = orderItems.every(
-        (i) =>
-          i.id === refund.orderItemId ||
-          i.status === OrderItemStatus.REFUNDED ||
-          i.status === OrderItemStatus.CANCELLED,
-      );
+      const existingRefundedAmount = refund.order.refunds
+        .filter((r) => r.status === RefundStatus.SUCCEEDED && r.id !== refund.id)
+        .reduce((sum, r) => sum + Number(r.refundAmount), 0);
+      const totalRefundedNow = existingRefundedAmount + Number(refund.refundAmount);
+      const orderTotal = Number(refund.order.totalAmount);
 
       await tx.order.update({
         where: { id: refund.orderId },
         data: {
-          paymentStatus: newPaymentStatus,
-          ...(allItemsRefundedOrCancelled
-            ? { orderStatus: OrderStatus.REFUNDED }
-            : {}),
+          paymentStatus:
+            totalRefundedNow >= orderTotal
+              ? PaymentStatus.REFUNDED
+              : PaymentStatus.PARTIALLY_REFUNDED,
         },
       });
 
@@ -872,8 +1285,8 @@ export class ReturnRefundService {
       resourceId: refundId,
       newValue: {
         orderId: refund.orderId,
-        refundAmount: currentRefundAmount,
-        providerRefundId: dto.providerRefundId,
+        refundAmount: Number(refund.refundAmount),
+        providerRefundId,
       },
     });
 
