@@ -24,6 +24,10 @@ export class ProductImageDto {
   @IsOptional()
   isPrimary?: boolean = false;
 
+  @IsUUID()
+  @IsOptional()
+  variantId?: string;
+
   @Type(() => Number)
   @IsInt()
   @Min(0)
@@ -47,6 +51,74 @@ export class ProductSpecificationDto {
   displayOrder?: number = 0;
 }
 
+export class CreateProductVariantDto {
+  @IsString()
+  @IsNotEmpty()
+  size!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  color!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  sku!: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  stockQuantity?: number = 0;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  lowStockThreshold?: number = 5;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @IsOptional()
+  priceOverride?: number;
+}
+
+export class UpdateProductVariantDto {
+  @IsString()
+  @IsOptional()
+  size?: string;
+
+  @IsString()
+  @IsOptional()
+  color?: string;
+
+  @IsString()
+  @IsOptional()
+  sku?: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  stockQuantity?: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  lowStockThreshold?: number;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @IsOptional()
+  priceOverride?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  isActive?: boolean;
+}
+
 export class CreateProductDto {
   @IsString()
   @IsNotEmpty()
@@ -57,14 +129,20 @@ export class CreateProductDto {
   description?: string;
 
   @IsString()
-  @IsNotEmpty()
-  sku!: string;
+  @IsOptional()
+  sku?: string;
 
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   @IsNotEmpty()
   price!: number;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @IsOptional()
+  compareAtPrice?: number;
 
   @IsUUID()
   @IsNotEmpty()
@@ -81,6 +159,12 @@ export class CreateProductDto {
   @Min(0)
   @IsOptional()
   lowStockThreshold?: number = 5;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateProductVariantDto)
+  @IsOptional()
+  variants?: CreateProductVariantDto[];
 
   @IsArray()
   @ValidateNested({ each: true })
@@ -109,6 +193,12 @@ export class UpdateProductDto {
   @Min(0)
   @IsOptional()
   price?: number;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @IsOptional()
+  compareAtPrice?: number;
 
   @IsUUID()
   @IsOptional()
@@ -139,7 +229,14 @@ export class SetSpecificationsDto {
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ProductSpecificationDto)
+  @IsNotEmpty()
   specifications!: ProductSpecificationDto[];
+}
+
+export class AdminTakedownDto {
+  @IsString()
+  @IsNotEmpty()
+  takedownReason!: string;
 }
 
 export class ProductQueryDto {

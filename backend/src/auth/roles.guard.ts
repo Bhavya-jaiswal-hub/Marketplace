@@ -14,17 +14,18 @@ export class RolesGuard implements CanActivate {
     ]);
 
     if (!requiredRoles || requiredRoles.length === 0) {
-      return true;
+      throw new ForbiddenException('Access denied: no role permissions configured for this endpoint');
     }
 
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const user = request.user;
+    const userRole = user?.role || user?.roleName;
 
-    if (!user || !user.role) {
+    if (!user || !userRole) {
       throw new ForbiddenException('Access denied: user identity or role missing');
     }
 
-    const hasRole = requiredRoles.includes(user.role);
+    const hasRole = requiredRoles.includes(userRole);
     if (!hasRole) {
       throw new ForbiddenException(`Access denied: requires one of [${requiredRoles.join(', ')}] role`);
     }

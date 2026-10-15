@@ -8,6 +8,11 @@ import { PrismaService } from '../prisma.service';
 import { CustomerService } from '../customer/customer.service';
 import { AddToCartDto, UpdateCartItemDto } from './dto';
 
+export const PLATFORM_SHIPPING_CONFIG = {
+  FLAT_FEE_PER_SELLER: 79.0,
+  FREE_SHIPPING_THRESHOLD: 999.0,
+};
+
 @Injectable()
 export class CartService {
   constructor(
@@ -51,7 +56,14 @@ export class CartService {
             },
             category: true,
             seller: true,
+          },
+        },
+        variant: {
+          include: {
             inventory: true,
+            images: {
+              orderBy: [{ isPrimary: 'desc' }, { displayOrder: 'asc' }],
+            },
           },
         },
       },
@@ -63,10 +75,12 @@ export class CartService {
 
     const formattedItems = items.map((item: any) => {
       const product = item.product;
-      const price = Number(product.price);
-      const itemSubtotal = price * item.quantity;
-      const availableStock = product.inventory?.availableQuantity ?? 0;
+      const variant = item.variant;
+      const unitPrice = variant?.priceOverride ? Number(variant.priceOverride) : Number(product.price);
+      const itemSubtotal = unitPrice * item.quantity;
+      const availableStock = variant?.inventory?.availableQuantity ?? variant?.stockQuantity ?? 0;
       const isAvailable =
+        variant?.isActive &&
         product.status === ProductStatus.ACTIVE &&
         !product.deletedAt &&
         availableStock >= item.quantity;
@@ -75,6 +89,7 @@ export class CartService {
       totalQuantity += item.quantity;
 
       const primaryImage =
+        variant?.images?.[0]?.imageUrl ||
         product.images.find((img: any) => img.isPrimary)?.imageUrl ||
         product.images[0]?.imageUrl ||
         null;
@@ -82,9 +97,12 @@ export class CartService {
       return {
         id: item.id,
         productId: product.id,
+        variantId: variant?.id || item.variantId,
         name: product.name,
-        sku: product.sku,
-        price,
+        sku: variant?.sku || product.sku,
+        size: variant?.size || null,
+        color: variant?.color || null,
+        price: unitPrice,
         quantity: item.quantity,
         subtotal: itemSubtotal,
         primaryImage,
@@ -103,14 +121,60 @@ export class CartService {
       };
     });
 
+    // Group items by seller for shipping calculation and free shipping nudges (FR-7, FR-8)
+    const sellerMap = new Map<string, any>();
+    for (const item of formattedItems) {
+      const sId = item.seller.id;
+      if (!sellerMap.has(sId)) {
+        sellerMap.set(sId, {
+          sellerId: sId,
+          sellerName: item.seller.displayName || item.seller.businessName,
+          items: [],
+          subtotal: 0,
+        });
+      }
+      const group = sellerMap.get(sId);
+      group.items.push(item);
+      group.subtotal += item.subtotal;
+    }
+
+    let totalShippingAmount = 0;
+    const sellerGroups = Array.from(sellerMap.values()).map((group) => {
+      const freeShippingEligible = group.subtotal >= PLATFORM_SHIPPING_CONFIG.FREE_SHIPPING_THRESHOLD;
+      const shippingFee = freeShippingEligible ? 0 : PLATFORM_SHIPPING_CONFIG.FLAT_FEE_PER_SELLER;
+      const amountNeeded = Math.max(
+        0,
+        Number((PLATFORM_SHIPPING_CONFIG.FREE_SHIPPING_THRESHOLD - group.subtotal).toFixed(2)),
+      );
+      totalShippingAmount += shippingFee;
+
+      return {
+        sellerId: group.sellerId,
+        sellerName: group.sellerName,
+        subtotal: group.subtotal,
+        itemCount: group.items.length,
+        items: group.items,
+        shippingFee,
+        freeShippingThreshold: PLATFORM_SHIPPING_CONFIG.FREE_SHIPPING_THRESHOLD,
+        freeShippingEligible,
+        amountNeededForFreeShipping: amountNeeded,
+        freeShippingNudge: freeShippingEligible
+          ? 'Free shipping unlocked for this seller!'
+          : `Add ₹${amountNeeded} more for free shipping from this seller`,
+      };
+    });
+
     return {
       success: true,
       data: {
         cartId: cart.id,
         items: formattedItems,
+        sellerGroups,
         totalItems: formattedItems.length,
         totalQuantity,
         subtotal,
+        shippingAmount: totalShippingAmount,
+        totalAmount: subtotal + totalShippingAmount,
       },
     };
   }
@@ -118,36 +182,43 @@ export class CartService {
   async addItem(userId: string, dto: AddToCartDto) {
     const cart = await this.getOrCreateActiveCart(userId);
 
-    const product = await this.prisma.product.findFirst({
-      where: {
-        id: dto.productId,
-        deletedAt: null,
-      },
+    // Validate variant
+    const variant = await this.prisma.productVariant.findUnique({
+      where: { id: dto.variantId },
       include: {
+        product: true,
         inventory: true,
       },
     });
 
-    if (!product) {
-      throw new NotFoundException('Product not found');
+    if (!variant) {
+      throw new NotFoundException('Product variant not found');
     }
 
-    if (product.status !== ProductStatus.ACTIVE) {
+    if (!variant.isActive) {
+      throw new BadRequestException('Selected product variant is inactive');
+    }
+
+    if (
+      variant.product.status !== ProductStatus.ACTIVE ||
+      variant.product.deletedAt !== null
+    ) {
       throw new BadRequestException('Product is not available for purchase');
     }
 
-    const availableStock = product.inventory?.availableQuantity ?? 0;
+    const availableStock = variant.inventory?.availableQuantity ?? variant.stockQuantity ?? 0;
     if (availableStock < dto.quantity) {
       throw new BadRequestException(
-        `Insufficient inventory available. Only ${availableStock} units remaining.`,
+        `Insufficient inventory available for variant '${variant.sku}'. Only ${availableStock} units remaining.`,
       );
     }
 
+    // Check if variant already exists in customer's cart
     const existingItem = await this.prisma.cartItem.findUnique({
       where: {
-        cartId_productId: {
+        cartId_variantId: {
           cartId: cart.id,
-          productId: dto.productId,
+          variantId: dto.variantId,
         },
       },
     });
@@ -156,7 +227,7 @@ export class CartService {
       const mergedQuantity = existingItem.quantity + dto.quantity;
       if (mergedQuantity > availableStock) {
         throw new BadRequestException(
-          `Requested total quantity (${mergedQuantity}) exceeds available stock (${availableStock})`,
+          `Requested total quantity (${mergedQuantity}) exceeds available stock (${availableStock}) for variant '${variant.sku}'`,
         );
       }
 
@@ -168,7 +239,8 @@ export class CartService {
       await this.prisma.cartItem.create({
         data: {
           cartId: cart.id,
-          productId: dto.productId,
+          productId: variant.productId,
+          variantId: variant.id,
           quantity: dto.quantity,
         },
       });
@@ -190,7 +262,8 @@ export class CartService {
         cartId: cart.id,
       },
       include: {
-        product: {
+        product: true,
+        variant: {
           include: { inventory: true },
         },
       },
@@ -201,13 +274,15 @@ export class CartService {
     }
 
     if (
+      !item.variant.isActive ||
       item.product.status !== ProductStatus.ACTIVE ||
       item.product.deletedAt
     ) {
-      throw new BadRequestException('Product is no longer available');
+      throw new BadRequestException('Product variant is no longer available');
     }
 
-    const availableStock = item.product.inventory?.availableQuantity ?? 0;
+    const availableStock =
+      item.variant.inventory?.availableQuantity ?? item.variant.stockQuantity ?? 0;
     if (dto.quantity > availableStock) {
       throw new BadRequestException(
         `Requested quantity (${dto.quantity}) exceeds available stock (${availableStock})`,
@@ -262,7 +337,8 @@ export class CartService {
     const items: any[] = await this.prisma.cartItem.findMany({
       where: { cartId: cart.id },
       include: {
-        product: {
+        product: true,
+        variant: {
           include: { inventory: true },
         },
       },
@@ -292,20 +368,27 @@ export class CartService {
 
     for (const item of items) {
       const product = item.product;
-      const price = Number(product.price);
+      const variant = item.variant;
+      const price = variant?.priceOverride ? Number(variant.priceOverride) : Number(product.price);
       const itemSubtotal = price * item.quantity;
-      const availableStock = product.inventory?.availableQuantity ?? 0;
+      const availableStock =
+        variant?.inventory?.availableQuantity ?? variant?.stockQuantity ?? 0;
 
       let isItemValid = true;
       let errorReason: string | null = null;
 
-      if (product.deletedAt || product.status !== ProductStatus.ACTIVE) {
+      if (
+        !variant ||
+        !variant.isActive ||
+        product.deletedAt ||
+        product.status !== ProductStatus.ACTIVE
+      ) {
         isItemValid = false;
-        errorReason = `Product "${product.name}" is no longer available`;
+        errorReason = `Product variant "${variant?.sku || product.name}" is no longer available`;
         errors.push(errorReason);
       } else if (availableStock < item.quantity) {
         isItemValid = false;
-        errorReason = `Product "${product.name}" only has ${availableStock} units available (requested ${item.quantity})`;
+        errorReason = `Variant "${variant.sku}" only has ${availableStock} units available (requested ${item.quantity})`;
         errors.push(errorReason);
       }
 
@@ -315,8 +398,11 @@ export class CartService {
       itemValidations.push({
         id: item.id,
         productId: product.id,
+        variantId: variant?.id,
         name: product.name,
-        sku: product.sku,
+        sku: variant?.sku,
+        size: variant?.size,
+        color: variant?.color,
         price,
         quantity: item.quantity,
         subtotal: itemSubtotal,

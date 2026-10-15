@@ -5,22 +5,46 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  AdjustmentStatus,
+  AdjustmentType,
   CommissionStatus,
+  DisputeResolutionOutcome,
+  DisputeStatus,
+  LedgerDirection,
   OrderItemStatus,
   OrderStatus,
   PaymentStatus,
   ProductStatus,
+  RefundStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { CustomerService } from '../customer/customer.service';
 import { InventoryService } from '../inventory/inventory.service';
 import { AuditService } from '../audit/audit.service';
 import {
+  ArbitrateDisputeDto,
   CancelOrderDto,
+  DisputeQueryDto,
   InitiateCheckoutDto,
   OrderQueryDto,
+  ReportNotReceivedDto,
+  SubmitDisputeProofDto,
   UpdateFulfillmentStatusDto,
 } from './dto';
+
+export function calculateSlaDueAt(startDate: Date = new Date()): Date {
+  const result = new Date(startDate.getTime());
+  let daysAdded = 0;
+  while (daysAdded < 3) {
+    result.setDate(result.getDate() + 1);
+    const dayOfWeek = result.getDay(); // 0 is Sunday, 6 is Saturday
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      daysAdded++;
+    }
+  }
+  return result;
+}
+
 
 @Injectable()
 export class OrderService {
@@ -50,7 +74,7 @@ export class OrderService {
       );
     }
 
-    // Retrieve active cart
+    // Retrieve active cart with variants and products
     const cart = await this.prisma.cart.findFirst({
       where: {
         customerId: customer.id,
@@ -61,7 +85,6 @@ export class OrderService {
           include: {
             product: {
               include: {
-                inventory: true,
                 category: {
                   include: {
                     commissions: {
@@ -71,6 +94,11 @@ export class OrderService {
                     },
                   },
                 },
+              },
+            },
+            variant: {
+              include: {
+                inventory: true,
               },
             },
           },
@@ -104,19 +132,27 @@ export class OrderService {
       }
     }
 
-    // Validate each cart item and inventory
+    // Validate each cart item and variant inventory
     for (const item of cart.items) {
       const product = item.product;
+      const variant = item.variant;
+
+      if (!variant || !variant.isActive) {
+        throw new BadRequestException(
+          `Product variant for "${product.name}" is no longer active`,
+        );
+      }
+
       if (product.deletedAt || product.status !== ProductStatus.ACTIVE) {
         throw new BadRequestException(
           `Product "${product.name}" is no longer available for purchase`,
         );
       }
 
-      const availableStock = product.inventory?.availableQuantity ?? 0;
+      const availableStock = variant.inventory?.availableQuantity ?? variant.stockQuantity ?? 0;
       if (availableStock < item.quantity) {
         throw new BadRequestException(
-          `Insufficient stock for "${product.name}". Available: ${availableStock}, Requested: ${item.quantity}`,
+          `Insufficient stock for "${product.name}" (${variant.size} / ${variant.color}). Available: ${availableStock}, Requested: ${item.quantity}`,
         );
       }
     }
@@ -126,35 +162,82 @@ export class OrderService {
     const providerOrderReference = `order_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes expiration
 
-    // Atomically reserve inventory for all items in batch
+    // Atomically reserve inventory for all items in batch using variantId
     await this.inventoryService.reserveStock({
       reservationId: orderNumber,
       items: cart.items.map((item) => ({
-        productId: item.productId,
+        variantId: item.variantId,
         quantity: item.quantity,
       })),
     });
 
-    // Calculate item and order totals
+    // Group items by seller for platform shipping fee calculation (FR-8)
+    const sellerItemsMap = new Map<string, any[]>();
+    for (const item of cart.items) {
+      const sId = item.product.sellerId;
+      if (!sellerItemsMap.has(sId)) sellerItemsMap.set(sId, []);
+      sellerItemsMap.get(sId)!.push(item);
+    }
+
+    const FLAT_FEE_PER_SELLER = 79.0;
+    const FREE_SHIPPING_THRESHOLD = 999.0;
+
+    let totalShippingAmount = 0;
+    const sellerShippingMap = new Map<string, number>();
+
+    for (const [sellerId, items] of sellerItemsMap.entries()) {
+      const sellerSubtotal = items.reduce((sum, item) => {
+        const unitPrice = item.variant?.priceOverride
+          ? Number(item.variant.priceOverride)
+          : Number(item.product.price);
+        return sum + unitPrice * item.quantity;
+      }, 0);
+
+      const fee = sellerSubtotal >= FREE_SHIPPING_THRESHOLD ? 0 : FLAT_FEE_PER_SELLER;
+      sellerShippingMap.set(sellerId, fee);
+      totalShippingAmount += fee;
+    }
+
+    // Calculate item and order totals with snapshots
     let orderSubtotal = 0;
     const orderItemsData = cart.items.map((item) => {
       const product = item.product;
-      const unitPrice = Number(product.price);
+      const variant = item.variant;
+      const unitPrice = variant?.priceOverride
+        ? Number(variant.priceOverride)
+        : Number(product.price);
       const subtotal = unitPrice * item.quantity;
+      orderSubtotal += subtotal;
+
+      // Item shipping share within its seller shipment
+      const sellerItems = sellerItemsMap.get(product.sellerId) || [];
+      const sellerFee = sellerShippingMap.get(product.sellerId) || 0;
+      const sellerSubtotal = sellerItems.reduce((sum, it) => {
+        const up = it.variant?.priceOverride
+          ? Number(it.variant.priceOverride)
+          : Number(it.product.price);
+        return sum + up * it.quantity;
+      }, 0);
+      const shippingFeeShare =
+        sellerSubtotal > 0 ? Number(((subtotal / sellerSubtotal) * sellerFee).toFixed(2)) : 0;
+
       const commissionRate =
         product.category?.commissions?.[0]?.commissionRate !== undefined
           ? Number(product.category.commissions[0].commissionRate)
           : 0.0;
       const commissionAmount = Number(((subtotal * commissionRate) / 100).toFixed(2));
-      const sellerEarnings = Number((subtotal - commissionAmount).toFixed(2));
-
-      orderSubtotal += subtotal;
+      const sellerEarnings = Number((subtotal - commissionAmount + shippingFeeShare).toFixed(2));
 
       return {
         productId: product.id,
+        variantId: variant.id,
         sellerId: product.sellerId,
         productName: product.name,
-        sku: product.sku,
+        sku: variant.sku,
+        productNameSnapshot: product.name,
+        skuSnapshot: variant.sku,
+        sizeSnapshot: variant.size,
+        colorSnapshot: variant.color,
         unitPrice,
         quantity: item.quantity,
         subtotal,
@@ -163,8 +246,9 @@ export class OrderService {
         totalAmount: subtotal,
         commissionRate,
         commissionAmount,
+        shippingFeeShare,
         sellerEarnings,
-        status: OrderItemStatus.PENDING,
+        status: OrderItemStatus.PLACED,
       };
     });
 
@@ -180,6 +264,8 @@ export class OrderService {
       addressType: shippingAddress.addressType,
     };
 
+    const totalAmount = Number((orderSubtotal + totalShippingAmount).toFixed(2));
+
     // Create Order and items
     const order = await this.prisma.order.create({
       data: {
@@ -187,20 +273,20 @@ export class OrderService {
         orderNumber,
         shippingAddressId: shippingAddress.id,
         shippingAddressSnapshot,
-        orderStatus: OrderStatus.PENDING,
+        orderStatus: OrderStatus.PLACED,
         paymentStatus: PaymentStatus.PENDING,
         currency: 'INR',
         subtotal: orderSubtotal,
-        shippingAmount: 0,
+        shippingAmount: totalShippingAmount,
         discountAmount: 0,
         taxAmount: 0,
-        totalAmount: orderSubtotal,
+        totalAmount,
         orderItems: {
           create: orderItemsData.map((item) => ({
             ...item,
             history: {
               create: {
-                newStatus: OrderItemStatus.PENDING,
+                newStatus: OrderItemStatus.PLACED,
                 eventType: 'Created',
                 reason: 'Order placed by customer',
                 changedBy: userId,
@@ -218,7 +304,7 @@ export class OrderService {
         customerId: customer.id,
         paymentReference,
         providerOrderReference,
-        amount: orderSubtotal,
+        amount: totalAmount,
         currency: 'INR',
         status: PaymentStatus.PENDING,
         attemptNumber: 1,
@@ -239,7 +325,7 @@ export class OrderService {
       resourceId: order.id,
       newValue: {
         orderNumber,
-        totalAmount: orderSubtotal,
+        totalAmount,
         itemCount: orderItemsData.length,
       },
     });
@@ -251,7 +337,7 @@ export class OrderService {
         orderNumber,
         paymentReference,
         providerOrderReference,
-        amount: orderSubtotal,
+        amount: totalAmount,
         currency: 'INR',
         expiresAt,
       },
@@ -375,8 +461,7 @@ export class OrderService {
 
     if (
       order.orderStatus === OrderStatus.CANCELLED ||
-      order.orderStatus === OrderStatus.DELIVERED ||
-      order.orderStatus === OrderStatus.RETURNED
+      order.orderStatus === OrderStatus.DELIVERED
     ) {
       throw new BadRequestException(
         `Order in status "${order.orderStatus}" cannot be cancelled`,
@@ -387,6 +472,10 @@ export class OrderService {
       ? order.orderItems.filter((i) => dto.orderItemIds!.includes(i.id))
       : order.orderItems;
 
+    if (itemsToCancel.length === 0) {
+      throw new BadRequestException('No order items selected for cancellation');
+    }
+
     for (const item of itemsToCancel) {
       if (
         item.status === OrderItemStatus.SHIPPED ||
@@ -394,6 +483,12 @@ export class OrderService {
       ) {
         throw new BadRequestException(
           `Cannot cancel item "${item.productName}" because it has already been shipped or delivered`,
+        );
+      }
+
+      if (item.status === OrderItemStatus.CANCELLED) {
+        throw new BadRequestException(
+          `Item "${item.productName}" is already cancelled`,
         );
       }
 
@@ -419,7 +514,7 @@ export class OrderService {
 
       // Restock inventory if paid
       if (order.paymentStatus === PaymentStatus.PAID) {
-        await this.inventoryService.adjustStock(userId, item.productId, {
+        await this.inventoryService.adjustVariantStock(userId, item.variantId, {
           mode: 'ADD' as any,
           quantity: item.quantity,
           reason: `Restock cancelled order item ${item.id}`,
@@ -432,27 +527,65 @@ export class OrderService {
       await this.inventoryService.releaseReservation({
         reservationId: order.orderNumber,
         items: itemsToCancel.map((i) => ({
+          variantId: i.variantId,
           productId: i.productId,
           quantity: i.quantity,
         })),
       });
     }
 
-    // Check if all order items are now cancelled
-    const updatedItems = await this.prisma.orderItem.findMany({
+    // Fetch all items to re-derive order status and check shipping fee refund per seller (BR-9)
+    const allOrderItems = await this.prisma.orderItem.findMany({
       where: { orderId: order.id },
     });
 
-    const allCancelled = updatedItems.every(
-      (i) => i.status === OrderItemStatus.CANCELLED,
-    );
+    const cancelledSellerIds = new Set(itemsToCancel.map((i) => i.sellerId));
+    let totalRefundAmount = 0;
 
-    if (allCancelled) {
-      await this.prisma.order.update({
-        where: { id: order.id },
-        data: { orderStatus: OrderStatus.CANCELLED },
+    for (const sellerId of cancelledSellerIds) {
+      const sellerItems = allOrderItems.filter((i) => i.sellerId === sellerId);
+      const allSellerItemsCancelled = sellerItems.every(
+        (i) => i.status === OrderItemStatus.CANCELLED,
+      );
+      const cancelledItemsForSeller = itemsToCancel.filter(
+        (i) => i.sellerId === sellerId,
+      );
+
+      const itemsPriceRefund = cancelledItemsForSeller.reduce(
+        (sum, i) => sum + Number(i.totalAmount),
+        0,
+      );
+
+      let shippingRefund = 0;
+      if (allSellerItemsCancelled) {
+        shippingRefund = sellerItems.reduce(
+          (sum, i) => sum + Number(i.shippingFeeShare),
+          0,
+        );
+      }
+
+      totalRefundAmount += itemsPriceRefund + shippingRefund;
+    }
+
+    if (order.paymentStatus === PaymentStatus.PAID && totalRefundAmount > 0) {
+      await this.prisma.refund.create({
+        data: {
+          orderId: order.id,
+          customerId: customer.id,
+          refundAmount: totalRefundAmount,
+          currency: order.currency,
+          refundReason: `Cancellation: ${dto.reason}`,
+          status: RefundStatus.SUCCEEDED,
+          processedAt: new Date(),
+        },
       });
     }
+
+    const derivedStatus = this.deriveOrderStatus(allOrderItems);
+    await this.prisma.order.update({
+      where: { id: order.id },
+      data: { orderStatus: derivedStatus },
+    });
 
     await this.audit.logAction({
       userId,
@@ -462,7 +595,8 @@ export class OrderService {
       newValue: {
         reason: dto.reason,
         cancelledItemCount: itemsToCancel.length,
-        allCancelled,
+        derivedStatus,
+        totalRefundAmount,
       },
     });
 
@@ -568,14 +702,14 @@ export class OrderService {
       throw new NotFoundException('Order item not found for this seller');
     }
 
-    // Validate status transitions
+    // Validate status transitions per SRS Section 8.1
     const validTransitions: Record<string, string[]> = {
-      [OrderItemStatus.PENDING]: [OrderItemStatus.CONFIRMED, OrderItemStatus.CANCELLED],
-      [OrderItemStatus.CONFIRMED]: [OrderItemStatus.PROCESSING, OrderItemStatus.CANCELLED],
-      [OrderItemStatus.PROCESSING]: [OrderItemStatus.SHIPPED, OrderItemStatus.CANCELLED],
+      [OrderItemStatus.PLACED]: [OrderItemStatus.PACKED, OrderItemStatus.CANCELLED],
+      [OrderItemStatus.PACKED]: [OrderItemStatus.SHIPPED, OrderItemStatus.CANCELLED],
       [OrderItemStatus.SHIPPED]: [OrderItemStatus.DELIVERED],
-      [OrderItemStatus.DELIVERED]: [],
+      [OrderItemStatus.DELIVERED]: [OrderItemStatus.NOT_RECEIVED_UNDER_DISPUTE],
       [OrderItemStatus.CANCELLED]: [],
+      [OrderItemStatus.NOT_RECEIVED_UNDER_DISPUTE]: [],
     };
 
     const allowed = validTransitions[item.status] || [];
@@ -585,10 +719,11 @@ export class OrderService {
       );
     }
 
+    const carrier = dto.courierName || dto.trackingCarrier;
     if (dto.status === OrderItemStatus.SHIPPED) {
-      if (!dto.trackingCarrier || !dto.trackingNumber) {
+      if (!carrier || !dto.trackingNumber) {
         throw new BadRequestException(
-          'Tracking carrier and tracking number are required when shipping an order item',
+          'Courier/carrier name and tracking number are required when shipping an order item',
         );
       }
     }
@@ -599,11 +734,16 @@ export class OrderService {
         status: dto.status,
         ...(dto.status === OrderItemStatus.SHIPPED && {
           shippedAt: new Date(),
-          trackingCarrier: dto.trackingCarrier,
+          courierName: carrier,
+          trackingCarrier: carrier,
           trackingNumber: dto.trackingNumber,
         }),
         ...(dto.status === OrderItemStatus.DELIVERED && {
           deliveredAt: new Date(),
+        }),
+        ...(dto.status === OrderItemStatus.CANCELLED && {
+          cancelledAt: new Date(),
+          cancellationReason: 'Cancelled by seller before shipping',
         }),
       },
     });
@@ -619,34 +759,37 @@ export class OrderService {
       },
     });
 
-    // Check if overall parent Order status can be updated
+    if (dto.status === OrderItemStatus.CANCELLED) {
+      if (item.order.paymentStatus !== PaymentStatus.PAID) {
+        await this.inventoryService.releaseReservation({
+          reservationId: item.order.orderNumber,
+          items: [
+            {
+              variantId: item.variantId,
+              productId: item.productId,
+              quantity: item.quantity,
+            },
+          ],
+        });
+      } else {
+        await this.inventoryService.adjustVariantStock(userId, item.variantId, {
+          mode: 'ADD' as any,
+          quantity: item.quantity,
+          reason: `Seller cancelled order item ${item.id}`,
+        });
+      }
+    }
+
+    // Check if overall parent Order status can be updated per SRS Section 8.2
     const allOrderItems = await this.prisma.orderItem.findMany({
       where: { orderId },
     });
 
-    if (allOrderItems.every((i) => i.status === OrderItemStatus.DELIVERED)) {
-      await this.prisma.order.update({
-        where: { id: orderId },
-        data: { orderStatus: OrderStatus.DELIVERED },
-      });
-    } else if (allOrderItems.every((i) => i.status === OrderItemStatus.SHIPPED)) {
-      await this.prisma.order.update({
-        where: { id: orderId },
-        data: { orderStatus: OrderStatus.SHIPPED },
-      });
-    } else if (
-      allOrderItems.every(
-        (i) =>
-          i.status === OrderItemStatus.PROCESSING ||
-          i.status === OrderItemStatus.SHIPPED ||
-          i.status === OrderItemStatus.DELIVERED,
-      )
-    ) {
-      await this.prisma.order.update({
-        where: { id: orderId },
-        data: { orderStatus: OrderStatus.PROCESSING },
-      });
-    }
+    const derivedStatus = this.deriveOrderStatus(allOrderItems);
+    await this.prisma.order.update({
+      where: { id: orderId },
+      data: { orderStatus: derivedStatus },
+    });
 
     await this.audit.logAction({
       userId,
@@ -656,7 +799,8 @@ export class OrderService {
       previousValue: { status: item.status },
       newValue: {
         status: dto.status,
-        trackingCarrier: dto.trackingCarrier,
+        courierName: carrier,
+        trackingCarrier: carrier,
         trackingNumber: dto.trackingNumber,
       },
     });
@@ -766,4 +910,468 @@ export class OrderService {
       data: order,
     };
   }
+
+  async reportNotReceived(
+    userId: string,
+    orderId: string,
+    orderItemId: string,
+    dto: ReportNotReceivedDto,
+  ) {
+    const customer = await this.customerService.getOrCreateProfile(userId);
+    const order = await this.prisma.order.findFirst({
+      where: {
+        id: orderId,
+        customerId: customer.data.id,
+      },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    const item = await this.prisma.orderItem.findFirst({
+      where: {
+        id: orderItemId,
+        orderId,
+      },
+    });
+
+    if (!item) {
+      throw new NotFoundException('Order item not found');
+    }
+
+    if (item.status !== OrderItemStatus.DELIVERED) {
+      throw new BadRequestException(
+        'Only delivered items can be reported as not received',
+      );
+    }
+
+    if (!item.deliveredAt) {
+      throw new BadRequestException('Delivery timestamp missing for this item');
+    }
+
+    // Verify 7 calendar days (168 hours) window from deliveredAt per SRS FR-9 / BR-11
+    const hoursSinceDelivery =
+      (Date.now() - new Date(item.deliveredAt).getTime()) / (1000 * 60 * 60);
+
+    if (hoursSinceDelivery > 168) {
+      throw new BadRequestException(
+        'Reporting not received is only permitted within 7 calendar days (168 hours) of delivery confirmation',
+      );
+    }
+
+    if (item.disputeStatus !== DisputeStatus.NONE) {
+      throw new BadRequestException(
+        'This order item is already under dispute or has been resolved',
+      );
+    }
+
+    const now = new Date();
+    const slaDueAt = calculateSlaDueAt(now);
+
+    const updated = await this.prisma.orderItem.update({
+      where: { id: orderItemId },
+      data: {
+        status: OrderItemStatus.NOT_RECEIVED_UNDER_DISPUTE,
+        disputeStatus: DisputeStatus.OPEN,
+        notReceivedReportedAt: now,
+        slaDueAt,
+      },
+    });
+
+    await this.prisma.orderItemHistory.create({
+      data: {
+        orderItemId,
+        previousStatus: item.status,
+        newStatus: OrderItemStatus.NOT_RECEIVED_UNDER_DISPUTE,
+        eventType: 'Dispute Raised',
+        reason: dto.reason || 'Customer reported item not received',
+        changedBy: userId,
+      },
+    });
+
+    // Update parent order status
+    const allOrderItems = await this.prisma.orderItem.findMany({
+      where: { orderId },
+    });
+    const derivedStatus = this.deriveOrderStatus(allOrderItems);
+    await this.prisma.order.update({
+      where: { id: orderId },
+      data: { orderStatus: derivedStatus },
+    });
+
+    await this.audit.logAction({
+      userId,
+      action: 'ORDER_ITEM_NOT_RECEIVED_DISPUTE_RAISED',
+      resourceType: 'OrderItem',
+      resourceId: orderItemId,
+      newValue: {
+        reason: dto.reason,
+        notes: dto.notes,
+        slaDueAt,
+      },
+    });
+
+    return {
+      success: true,
+      data: updated,
+      message:
+        '"Not received" dispute raised successfully and escalated to Super Admin',
+    };
+  }
+
+  async submitDisputeProof(
+    userId: string,
+    orderId: string,
+    orderItemId: string,
+    dto: SubmitDisputeProofDto,
+  ) {
+    const seller = await this.prisma.sellerProfile.findUnique({
+      where: { userId },
+    });
+
+    if (!seller) {
+      throw new ForbiddenException('Seller profile is required');
+    }
+
+    const item = await this.prisma.orderItem.findFirst({
+      where: {
+        id: orderItemId,
+        orderId,
+        sellerId: seller.id,
+      },
+    });
+
+    if (!item) {
+      throw new NotFoundException('Order item not found for this seller');
+    }
+
+    if (
+      item.disputeStatus !== DisputeStatus.OPEN &&
+      item.status !== OrderItemStatus.NOT_RECEIVED_UNDER_DISPUTE
+    ) {
+      throw new BadRequestException(
+        'Order item is not currently under an active dispute',
+      );
+    }
+
+    const updated = await this.prisma.orderItem.update({
+      where: { id: orderItemId },
+      data: {
+        sellerProofNotes: dto.proofNotes,
+        sellerProofDocumentUrl: dto.proofDocumentUrl,
+        ...(dto.courierName && { courierName: dto.courierName }),
+        ...(dto.trackingNumber && { trackingNumber: dto.trackingNumber }),
+      },
+    });
+
+    await this.prisma.orderItemHistory.create({
+      data: {
+        orderItemId,
+        previousStatus: item.status,
+        newStatus: item.status,
+        eventType: 'Dispute Proof Submitted',
+        reason: `Seller submitted delivery proof: ${dto.proofNotes}`,
+        changedBy: userId,
+      },
+    });
+
+    await this.audit.logAction({
+      userId,
+      action: 'ORDER_ITEM_DISPUTE_PROOF_SUBMITTED',
+      resourceType: 'OrderItem',
+      resourceId: orderItemId,
+      newValue: {
+        proofNotes: dto.proofNotes,
+        proofDocumentUrl: dto.proofDocumentUrl,
+      },
+    });
+
+    return {
+      success: true,
+      data: updated,
+      message: 'Dispute delivery proof submitted successfully',
+    };
+  }
+
+  async arbitrateDispute(
+    adminUserId: string,
+    orderItemId: string,
+    dto: ArbitrateDisputeDto,
+  ) {
+    const item = await this.prisma.orderItem.findUnique({
+      where: { id: orderItemId },
+      include: {
+        order: true,
+        seller: true,
+      },
+    });
+
+    if (!item) {
+      throw new NotFoundException('Order item not found');
+    }
+
+    if (
+      item.disputeStatus !== DisputeStatus.OPEN &&
+      item.status !== OrderItemStatus.NOT_RECEIVED_UNDER_DISPUTE
+    ) {
+      throw new BadRequestException(
+        'Order item is not currently under an active dispute',
+      );
+    }
+
+    const now = new Date();
+
+    if (dto.outcome === DisputeResolutionOutcome.CUSTOMER_REFUND_UPHELD) {
+      const refundAmount = Number(
+        (Number(item.totalAmount) + Number(item.shippingFeeShare)).toFixed(2),
+      );
+
+      // 1. Create SellerAdjustment debit record per SRS FR-9 / BR-11
+      await this.prisma.sellerAdjustment.create({
+        data: {
+          sellerId: item.sellerId,
+          type: AdjustmentType.DISPUTE_CHARGE_DEBIT,
+          direction: LedgerDirection.DEBIT,
+          amount: refundAmount,
+          reason:
+            dto.adminNotes ||
+            'Dispute upheld for non-delivery claim: customer refunded',
+          orderItemId: item.id,
+          status: AdjustmentStatus.PENDING,
+        },
+      });
+
+      // 2. Create Refund record if order was paid
+      if (item.order.paymentStatus === PaymentStatus.PAID) {
+        await this.prisma.refund.create({
+          data: {
+            orderId: item.orderId,
+            orderItemId: item.id,
+            customerId: item.order.customerId,
+            refundAmount,
+            currency: item.order.currency,
+            refundReason: `Dispute upheld: ${dto.adminNotes}`,
+            status: RefundStatus.SUCCEEDED,
+            processedAt: now,
+          },
+        });
+      }
+
+      // 3. Update order item dispute status
+      const updated = await this.prisma.orderItem.update({
+        where: { id: orderItemId },
+        data: {
+          disputeStatus: DisputeStatus.RESOLVED_REFUNDED,
+          resolutionOutcome: DisputeResolutionOutcome.CUSTOMER_REFUND_UPHELD,
+          resolvedById: adminUserId,
+          resolvedAt: now,
+          disputeAdminNotes: dto.adminNotes,
+        },
+      });
+
+      await this.prisma.orderItemHistory.create({
+        data: {
+          orderItemId,
+          previousStatus: item.status,
+          newStatus: item.status,
+          eventType: 'Dispute Resolved: Customer Refund Upheld',
+          reason: dto.adminNotes,
+          changedBy: adminUserId,
+        },
+      });
+
+      // Re-derive parent order status
+      const allOrderItems = await this.prisma.orderItem.findMany({
+        where: { orderId: item.orderId },
+      });
+      const derivedStatus = this.deriveOrderStatus(allOrderItems);
+      await this.prisma.order.update({
+        where: { id: item.orderId },
+        data: { orderStatus: derivedStatus },
+      });
+
+      await this.audit.logAction({
+        userId: adminUserId,
+        action: 'ORDER_DISPUTE_ARBITRATED',
+        resourceType: 'OrderItem',
+        resourceId: orderItemId,
+        newValue: {
+          outcome: dto.outcome,
+          refundAmount,
+          adminNotes: dto.adminNotes,
+        },
+      });
+
+      return {
+        success: true,
+        data: updated,
+        message: 'Dispute resolved: Customer refund upheld and seller debited',
+      };
+    } else {
+      // DISPUTE_REJECTED: Revert item status to DELIVERED
+      const updated = await this.prisma.orderItem.update({
+        where: { id: orderItemId },
+        data: {
+          status: OrderItemStatus.DELIVERED,
+          disputeStatus: DisputeStatus.RESOLVED_DELIVERED,
+          resolutionOutcome: DisputeResolutionOutcome.DISPUTE_REJECTED,
+          resolvedById: adminUserId,
+          resolvedAt: now,
+          disputeAdminNotes: dto.adminNotes,
+        },
+      });
+
+      await this.prisma.orderItemHistory.create({
+        data: {
+          orderItemId,
+          previousStatus: item.status,
+          newStatus: OrderItemStatus.DELIVERED,
+          eventType: 'Dispute Resolved: Claim Rejected',
+          reason: dto.adminNotes,
+          changedBy: adminUserId,
+        },
+      });
+
+      // Re-derive parent order status
+      const allOrderItems = await this.prisma.orderItem.findMany({
+        where: { orderId: item.orderId },
+      });
+      const derivedStatus = this.deriveOrderStatus(allOrderItems);
+      await this.prisma.order.update({
+        where: { id: item.orderId },
+        data: { orderStatus: derivedStatus },
+      });
+
+      await this.audit.logAction({
+        userId: adminUserId,
+        action: 'ORDER_DISPUTE_ARBITRATED',
+        resourceType: 'OrderItem',
+        resourceId: orderItemId,
+        newValue: {
+          outcome: dto.outcome,
+          adminNotes: dto.adminNotes,
+        },
+      });
+
+      return {
+        success: true,
+        data: updated,
+        message:
+          'Dispute resolved: Claim rejected and item returned to DELIVERED status',
+      };
+    }
+  }
+
+  async listAdminDisputes(query: DisputeQueryDto) {
+    const page = query.page || 1;
+    const limit = query.limit || 20;
+    const skip = (page - 1) * limit;
+
+    const whereClause: any = {
+      ...(query.status
+        ? { disputeStatus: query.status }
+        : {
+            OR: [
+              { disputeStatus: { not: DisputeStatus.NONE } },
+              { status: OrderItemStatus.NOT_RECEIVED_UNDER_DISPUTE },
+            ],
+          }),
+    };
+
+    const [total, items] = await Promise.all([
+      this.prisma.orderItem.count({ where: whereClause }),
+      this.prisma.orderItem.findMany({
+        where: whereClause,
+        include: {
+          order: {
+            select: {
+              id: true,
+              orderNumber: true,
+              orderStatus: true,
+              paymentStatus: true,
+              customer: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  user: { select: { email: true } },
+                },
+              },
+            },
+          },
+          seller: {
+            select: {
+              id: true,
+              displayName: true,
+              businessName: true,
+            },
+          },
+          product: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+    ]);
+
+    const now = new Date();
+    const formatted = items.map((item: any) => ({
+      ...item,
+      isOverdue:
+        item.disputeStatus === DisputeStatus.OPEN && item.slaDueAt
+          ? now > new Date(item.slaDueAt)
+          : false,
+    }));
+
+    return {
+      success: true,
+      data: formatted,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  deriveOrderStatus(items: Array<{ status: OrderItemStatus }>): OrderStatus {
+    if (!items || items.length === 0) {
+      return OrderStatus.PLACED;
+    }
+
+    if (items.some((i) => i.status === OrderItemStatus.NOT_RECEIVED_UNDER_DISPUTE)) {
+      return OrderStatus.UNDER_DISPUTE;
+    }
+
+    if (items.every((i) => i.status === OrderItemStatus.CANCELLED)) {
+      return OrderStatus.CANCELLED;
+    }
+
+    const nonCancelled = items.filter((i) => i.status !== OrderItemStatus.CANCELLED);
+    if (nonCancelled.length > 0 && nonCancelled.every((i) => i.status === OrderItemStatus.DELIVERED)) {
+      return OrderStatus.DELIVERED;
+    }
+
+    if (items.some((i) => i.status === OrderItemStatus.DELIVERED)) {
+      return OrderStatus.PARTIALLY_DELIVERED;
+    }
+
+    if (items.some((i) => i.status === OrderItemStatus.SHIPPED)) {
+      return OrderStatus.PARTIALLY_SHIPPED;
+    }
+
+    if (items.some((i) => i.status === OrderItemStatus.CANCELLED)) {
+      return OrderStatus.PARTIALLY_CANCELLED;
+    }
+
+    return OrderStatus.PLACED;
+  }
 }
+

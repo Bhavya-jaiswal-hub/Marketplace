@@ -40,17 +40,17 @@ Settlement Management
 | Return Adjustment Amount | Numeric | Refund/return adjustments associated with this item |
 | Seller Fault Return Shipping Deduction | Numeric | Deducted return shipping fee if return was classified as seller-fault |
 | Net Amount | Numeric | Net item payable to seller ($\text{Gross Amount} - \text{Commission Amount} - \text{Deductions}$) |
-| Status | Enum | Settlement item status (see Section 8.5) |
+| Status | Enum (`SettlementItemStatus`) | Settlement item status (`NOT_ELIGIBLE`, `ELIGIBLE`, `SETTLED`) |
 | Created At | Timestamp | Record creation timestamp |
 | Updated At | Timestamp | Last modification timestamp |
 
 ## Settlement Item Statuses (SRS Section 8.5)
 
-The Settlement Item entity strictly conforms to the 3 statuses defined in **SRS Section 8.5**:
+The Settlement Item entity strictly conforms to the 3 statuses defined in **SRS Section 8.5** (formatted in `UPPER_SNAKE_CASE`):
 
-- **`Not Eligible`:** Marked `Delivered` less than 7 days ago, currently in an open return/refund workflow, subject to an active customer "Not received" dispute (`Not Received - Under Dispute`), or payout not yet due.
-- **`Eligible`:** Order item marked `Delivered` 7+ days ago with no open return, refund, or active dispute; queued for weekly settlement calculation.
-- **`Settled`:** Payout calculated, external bank/UPI reference recorded by Super Admin, and financial record permanently locked.
+- **`NOT_ELIGIBLE` (`Not Eligible`):** Marked `Delivered` less than 7 days ago, currently in an open return/refund workflow, subject to an active customer "Not received" dispute (`Not Received - Under Dispute`), or payout not yet due.
+- **`ELIGIBLE` (`Eligible`):** Order item marked `Delivered` 7+ days ago with no open return, refund, or active dispute; queued for weekly settlement calculation.
+- **`SETTLED` (`Settled`):** Payout calculated, external bank/UPI reference recorded by Super Admin, batch status transitioned to `SETTLED`, and financial record permanently locked.
 
 ## Validation & Eligibility Rules (SRS FR-12, BR-12, AC-7)
 

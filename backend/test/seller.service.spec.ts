@@ -86,7 +86,7 @@ describe('SellerService', () => {
         sellerType: SellerType.INDIVIDUAL,
         displayName: 'John Store',
         businessName: null,
-        status: SellerStatus.PENDING,
+        status: SellerStatus.PENDING_APPROVAL,
       });
       prisma.sellerVerification.create.mockResolvedValue({
         id: 'ver-1',
@@ -102,7 +102,7 @@ describe('SellerService', () => {
       });
 
       expect(res.success).toBe(true);
-      expect(res.data.seller.status).toBe(SellerStatus.PENDING);
+      expect(res.data.seller.status).toBe(SellerStatus.PENDING_APPROVAL);
       expect(auditService.logAction).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'SELLER_ONBOARDING_CREATED' }),
       );
@@ -176,7 +176,7 @@ describe('SellerService', () => {
       prisma.sellerProfile.findUnique.mockResolvedValue({
         id: 'seller-1',
         userId: 'user-1',
-        status: SellerStatus.PENDING,
+        status: SellerStatus.PENDING_APPROVAL,
         verifications: [{ id: 'ver-1', submissionNumber: 1, status: VerificationStatus.PENDING }],
       });
       prisma.verificationDocument.create.mockResolvedValue({
@@ -239,7 +239,7 @@ describe('SellerService', () => {
       expect(res.data.submissionNumber).toBe(2);
       expect(res.data.status).toBe(VerificationStatus.PENDING);
       expect(prisma.sellerProfile.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: { status: SellerStatus.PENDING } }),
+        expect.objectContaining({ data: { status: SellerStatus.PENDING_APPROVAL } }),
       );
     });
   });
@@ -249,7 +249,7 @@ describe('SellerService', () => {
       prisma.sellerProfile.findUnique.mockResolvedValue({
         id: 'seller-1',
         userId: 'user-1',
-        status: SellerStatus.PENDING,
+        status: SellerStatus.PENDING_APPROVAL,
         addresses: [{ id: 'addr-1' }],
         verifications: [
           {
@@ -286,7 +286,7 @@ describe('SellerService', () => {
       prisma.sellerProfile.findUnique.mockResolvedValue({
         id: 'seller-1',
         userId: 'user-1',
-        status: SellerStatus.PENDING,
+        status: SellerStatus.PENDING_APPROVAL,
         verifications: [{ id: 'ver-1', status: VerificationStatus.PENDING }],
       });
 

@@ -1,9 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { EmailDeliveryResult, SendEmailOptions } from './email.interface';
+import { EmailDeliveryResult, IEmailService, SendEmailOptions } from './email.interface';
 
 @Injectable()
-export class EmailService {
+export class EmailService implements IEmailService {
   private readonly logger = new Logger(EmailService.name);
   private readonly provider: string;
   private readonly appUrl: string;

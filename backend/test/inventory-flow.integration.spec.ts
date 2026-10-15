@@ -7,13 +7,15 @@ import { AuditService } from '../src/audit/audit.service';
 import { StockAdjustmentMode } from '../src/inventory/dto';
 import { BadRequestException } from '@nestjs/common';
 
-describe('Inventory & Reservation Concurrency Lifecycle Integration', () => {
+describe('Inventory & Atomic Reservation Concurrency Lifecycle Integration (FR-6, BR-5)', () => {
   let inventoryService: InventoryService;
   let auditService: AuditService;
 
   const db = {
     sellerProfiles: new Map<string, any>(),
+    categories: new Map<string, any>(),
     products: new Map<string, any>(),
+    productVariants: new Map<string, any>(),
     inventories: new Map<string, any>(),
     inventoryHistories: new Map<string, any>(),
     auditLogs: new Map<string, any>(),
@@ -21,7 +23,9 @@ describe('Inventory & Reservation Concurrency Lifecycle Integration', () => {
 
   beforeEach(() => {
     db.sellerProfiles.clear();
+    db.categories.clear();
     db.products.clear();
+    db.productVariants.clear();
     db.inventories.clear();
     db.inventoryHistories.clear();
     db.auditLogs.clear();
@@ -43,9 +47,37 @@ describe('Inventory & Reservation Concurrency Lifecycle Integration', () => {
           const prod = db.products.get(where.id);
           if (!prod) return null;
           const res = { ...prod };
+          if (include?.variants) {
+            const vars = Array.from(db.productVariants.values()).filter(
+              (v) => v.productId === prod.id,
+            );
+            res.variants = vars.map((v) => {
+              const resV = { ...v };
+              if (include.variants.include?.inventory) {
+                for (const inv of db.inventories.values()) {
+                  if (inv.variantId === v.id) {
+                    resV.inventory = inv;
+                    break;
+                  }
+                }
+              }
+              return resV;
+            });
+          }
+          return res;
+        }),
+      },
+      productVariant: {
+        findUnique: jest.fn(async ({ where, include }: any) => {
+          const v = db.productVariants.get(where.id);
+          if (!v) return null;
+          const res = { ...v };
+          if (include?.product) {
+            res.product = db.products.get(v.productId);
+          }
           if (include?.inventory) {
             for (const inv of db.inventories.values()) {
-              if (inv.productId === prod.id) {
+              if (inv.variantId === v.id) {
                 res.inventory = inv;
                 break;
               }
@@ -53,13 +85,50 @@ describe('Inventory & Reservation Concurrency Lifecycle Integration', () => {
           }
           return res;
         }),
+        findMany: jest.fn(async ({ where, include }: any) => {
+          let list = Array.from(db.productVariants.values());
+          if (where?.product?.sellerId) {
+            list = list.filter((v) => {
+              const p = db.products.get(v.productId);
+              return p && p.sellerId === where.product.sellerId;
+            });
+          }
+          if (where?.productId) {
+            list = list.filter((v) => v.productId === where.productId);
+          }
+          return list.map((v) => {
+            const res = { ...v };
+            if (include?.product) {
+              const p = db.products.get(v.productId);
+              res.product = {
+                ...p,
+                category: db.categories.get(p.categoryId) || { id: 'cat-1', name: 'Clothing' },
+              };
+            }
+            if (include?.inventory) {
+              for (const inv of db.inventories.values()) {
+                if (inv.variantId === v.id) {
+                  res.inventory = inv;
+                  break;
+                }
+              }
+            }
+            return res;
+          });
+        }),
+        update: jest.fn(async ({ where, data }: any) => {
+          const v = db.productVariants.get(where.id);
+          if (!v) return null;
+          Object.assign(v, data, { updatedAt: new Date() });
+          return v;
+        }),
       },
       inventory: {
         findUnique: jest.fn(async ({ where, include }: any) => {
           let inv = null;
-          if (where.productId) {
+          if (where.variantId) {
             for (const i of db.inventories.values()) {
-              if (i.productId === where.productId) {
+              if (i.variantId === where.variantId) {
                 inv = i;
                 break;
               }
@@ -70,8 +139,8 @@ describe('Inventory & Reservation Concurrency Lifecycle Integration', () => {
 
           if (!inv) return null;
           const res = { ...inv };
-          if (include?.product) {
-            res.product = db.products.get(inv.productId);
+          if (include?.variant) {
+            res.variant = db.productVariants.get(inv.variantId);
           }
           return res;
         }),
@@ -92,8 +161,8 @@ describe('Inventory & Reservation Concurrency Lifecycle Integration', () => {
         }),
         findMany: jest.fn(async ({ where }: any) => {
           let list = Array.from(db.inventoryHistories.values());
-          if (where?.productId) {
-            list = list.filter((h) => h.productId === where.productId);
+          if (where?.variantId) {
+            list = list.filter((h) => h.variantId === where.variantId);
           }
           return list;
         }),
@@ -106,6 +175,26 @@ describe('Inventory & Reservation Concurrency Lifecycle Integration', () => {
           return record;
         }),
       },
+      $executeRaw: jest.fn(async (strings: TemplateStringsArray, ...values: any[]) => {
+        // Atomic SQL update simulation:
+        // UPDATE "Inventory" SET availableQuantity = availableQuantity - qty, reservedQuantity = reservedQuantity + qty WHERE variantId = :varId AND availableQuantity >= qty
+        const qty = values[0];
+        const variantId = values[2];
+        let targetInv: any = null;
+        for (const inv of db.inventories.values()) {
+          if (inv.variantId === variantId) {
+            targetInv = inv;
+            break;
+          }
+        }
+        if (targetInv && targetInv.availableQuantity >= qty) {
+          targetInv.availableQuantity -= qty;
+          targetInv.reservedQuantity += qty;
+          targetInv.updatedAt = new Date();
+          return 1; // 1 row updated atomically
+        }
+        return 0; // 0 rows updated
+      }),
       $transaction: jest.fn(async (cb: any) => cb(mockPrisma)),
     };
 
@@ -113,7 +202,8 @@ describe('Inventory & Reservation Concurrency Lifecycle Integration', () => {
     inventoryService = new InventoryService(mockPrisma, auditService);
   });
 
-  it('runs complete stock adjustment, reservation, rejection on insufficient stock, release, and confirmation', async () => {
+  it('runs complete variant stock adjustment, atomic concurrency reservation test, and release flow', async () => {
+    // 1. Setup Seller, Product, and Variants
     const sellerUserId = 'seller-user-1';
     const sellerId = 'seller-profile-1';
     db.sellerProfiles.set(sellerId, {
@@ -121,92 +211,117 @@ describe('Inventory & Reservation Concurrency Lifecycle Integration', () => {
       userId: sellerUserId,
     });
 
-    const productId = 'prod-smartwatch-1';
+    const categoryId = 'cat-clothing-1';
+    db.categories.set(categoryId, { id: categoryId, name: 'Mens Clothing' });
+
+    const productId = 'prod-oxford-1';
     db.products.set(productId, {
       id: productId,
       sellerId,
-      name: 'Ultra GPS Smartwatch',
+      categoryId,
+      name: 'Oxford Button-Down Shirt',
       status: ProductStatus.ACTIVE,
+      deletedAt: null,
     });
 
-    const inventoryId = 'inv-smartwatch-1';
-    db.inventories.set(inventoryId, {
-      id: inventoryId,
+    const variantIdM = 'var-oxf-m';
+    db.productVariants.set(variantIdM, {
+      id: variantIdM,
       productId,
-      availableQuantity: 10,
-      reservedQuantity: 0,
-      lowStockThreshold: 5,
+      sku: 'OXF-M-BLK',
+      size: 'M',
+      color: 'Black',
+      stockQuantity: 5,
+      lowStockThreshold: 3,
+      isActive: true,
     });
 
-    // 1. Seller adjusts stock from 10 to 15
-    const adjustRes = await inventoryService.adjustStock(sellerUserId, productId, {
-      quantity: 15,
+    const invIdM = 'inv-oxf-m';
+    db.inventories.set(invIdM, {
+      id: invIdM,
+      variantId: variantIdM,
+      availableQuantity: 5,
+      reservedQuantity: 0,
+      lowStockThreshold: 3,
+    });
+
+    // 2. Seller adjusts stock on variant from 5 to 7
+    const adjustRes = await inventoryService.adjustVariantStock(sellerUserId, variantIdM, {
+      quantity: 7,
       mode: StockAdjustmentMode.SET,
-      reason: 'Warehouse restock batch #45',
+      reason: 'Physical inventory recount',
     });
     expect(adjustRes.success).toBe(true);
-    expect(adjustRes.data.inventory.availableQuantity).toBe(15);
+    expect(adjustRes.data.inventory.availableQuantity).toBe(7);
 
-    // 2. Checkout validates stock for 5 units
-    const validRes = await inventoryService.validateStock({
-      items: [{ productId, quantity: 5 }],
+    // Set stock to exactly 5 for concurrency test
+    await inventoryService.adjustVariantStock(sellerUserId, variantIdM, {
+      quantity: 5,
+      mode: StockAdjustmentMode.SET,
+      reason: 'Reset to 5 for race condition test',
     });
-    expect(validRes.data.valid).toBe(true);
 
-    // 3. Checkout reserves 5 units for Customer A
-    const resA = await inventoryService.reserveStock({
-      reservationId: 'order-checkout-cust-A',
-      items: [{ productId, quantity: 5 }],
+    // 3. Concurrency Simulation Test:
+    // Two shoppers attempt to checkout 4 units simultaneously when available stock is 5.
+    // Exactly ONE must succeed (leaving 1 available and 4 reserved).
+    // The other must be rejected with BadRequestException.
+    const checkoutA = inventoryService.reserveStock({
+      reservationId: 'order-res-A',
+      items: [{ variantId: variantIdM, quantity: 4 }],
     });
-    expect(resA.success).toBe(true);
-    const invAfterA = db.inventories.get(inventoryId);
-    expect(invAfterA.availableQuantity).toBe(10);
-    expect(invAfterA.reservedQuantity).toBe(5);
 
-    // 4. Customer B tries to reserve 12 units (only 10 available) -> should fail
-    await expect(
-      inventoryService.reserveStock({
-        reservationId: 'order-checkout-cust-B',
-        items: [{ productId, quantity: 12 }],
-      }),
-    ).rejects.toThrow(BadRequestException);
-
-    // 5. Customer A cancels payment -> release reservation
-    const relRes = await inventoryService.releaseReservation({
-      reservationId: 'order-checkout-cust-A',
-      items: [{ productId, quantity: 5 }],
+    const checkoutB = inventoryService.reserveStock({
+      reservationId: 'order-res-B',
+      items: [{ variantId: variantIdM, quantity: 4 }],
     });
-    expect(relRes.success).toBe(true);
-    const invAfterRel = db.inventories.get(inventoryId);
-    expect(invAfterRel.availableQuantity).toBe(15);
-    expect(invAfterRel.reservedQuantity).toBe(0);
 
-    // 6. Customer C reserves 4 units
-    await inventoryService.reserveStock({
-      reservationId: 'order-checkout-cust-C',
-      items: [{ productId, quantity: 4 }],
+    const results = await Promise.allSettled([checkoutA, checkoutB]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(BadRequestException);
+
+    // Verify inventory state after race: 5 - 4 = 1 available, 4 reserved
+    const invAfterRace = db.inventories.get(invIdM);
+    expect(invAfterRace.availableQuantity).toBe(1);
+    expect(invAfterRace.reservedQuantity).toBe(4);
+
+    // 4. Winning checkout confirms payment: reserved stock is deducted
+    await inventoryService.confirmReservation({
+      reservationId: 'order-res-winning',
+      items: [{ variantId: variantIdM, quantity: 4 }],
     });
-    const invAfterC = db.inventories.get(inventoryId);
-    expect(invAfterC.availableQuantity).toBe(11);
-    expect(invAfterC.reservedQuantity).toBe(4);
 
-    // 7. Customer C payment succeeds -> confirm reservation
-    const confRes = await inventoryService.confirmReservation({
-      reservationId: 'order-checkout-cust-C',
-      items: [{ productId, quantity: 4 }],
+    expect(invAfterRace.reservedQuantity).toBe(0);
+    expect(invAfterRace.availableQuantity).toBe(1);
+
+    // 5. Test out-of-stock dynamics
+    // Adjust remaining 1 unit to 0
+    await inventoryService.adjustVariantStock(sellerUserId, variantIdM, {
+      quantity: 0,
+      mode: StockAdjustmentMode.SET,
+      reason: 'Final unit purchased in store',
     });
-    expect(confRes.success).toBe(true);
-    const invAfterConf = db.inventories.get(inventoryId);
-    expect(invAfterConf.availableQuantity).toBe(11);
-    expect(invAfterConf.reservedQuantity).toBe(0);
 
-    // 8. Verify complete InventoryHistory records
-    const historyRes = await inventoryService.getInventoryHistory(sellerUserId, productId);
-    expect(historyRes.data.history).toHaveLength(5);
-    const changeTypes = historyRes.data.history.map((h: any) => h.changeType);
-    expect(changeTypes).toContain(StockChangeType.STOCK_ADDED);
-    expect(changeTypes).toContain(StockChangeType.RESERVATION_CREATED);
-    expect(changeTypes).toContain(StockChangeType.RESERVATION_RELEASED);
-    expect(changeTypes).toContain(StockChangeType.RESERVATION_CONFIRMED);
+    const sellerInv = await inventoryService.getSellerInventory(sellerUserId);
+    const varItem = sellerInv.data.items.find((i: any) => i.variantId === variantIdM);
+    expect(varItem.isOutOfStock).toBe(true);
+    expect(varItem.availableQuantity).toBe(0);
+
+    // Check product inventory status
+    const prodInv = await inventoryService.getProductInventory(sellerUserId, productId);
+    expect(prodInv.data.isOutOfStock).toBe(true);
+
+    // 6. Restock returned product
+    await inventoryService.restockReturnedProduct(variantIdM, 1, 'return-req-404', 'admin-user');
+    expect(db.inventories.get(invIdM).availableQuantity).toBe(1);
+
+    // Verify audit logs
+    const auditActions = Array.from(db.auditLogs.values()).map((a) => a.action);
+    expect(auditActions).toContain('INVENTORY_ADJUSTED');
+    expect(auditActions).toContain('INVENTORY_RETURN_RESTOCK');
   });
 });

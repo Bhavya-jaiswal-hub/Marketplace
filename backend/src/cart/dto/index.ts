@@ -3,8 +3,12 @@ import { Type } from 'class-transformer';
 
 export class AddToCartDto {
   @IsString()
+  @IsOptional()
+  productId?: string;
+
+  @IsString()
   @IsNotEmpty()
-  productId!: string;
+  variantId!: string;
 
   @IsInt()
   @Min(1)

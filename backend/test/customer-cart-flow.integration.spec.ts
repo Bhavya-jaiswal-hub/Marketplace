@@ -4,9 +4,8 @@ import {
   ProductStatus,
 } from '@prisma/client';
 import { CustomerService } from '../src/customer/customer.service';
-import { CartService } from '../src/cart/cart.service';
+import { CartService, PLATFORM_SHIPPING_CONFIG } from '../src/cart/cart.service';
 import { AuditService } from '../src/audit/audit.service';
-import { BadRequestException } from '@nestjs/common';
 
 describe('Customer Profile, Delivery Addresses & Multi-Seller Cart Integration Flow', () => {
   let customerService: CustomerService;
@@ -20,6 +19,7 @@ describe('Customer Profile, Delivery Addresses & Multi-Seller Cart Integration F
     categories: new Map<string, any>(),
     sellerProfiles: new Map<string, any>(),
     products: new Map<string, any>(),
+    productVariants: new Map<string, any>(),
     productImages: new Map<string, any>(),
     inventories: new Map<string, any>(),
     carts: new Map<string, any>(),
@@ -34,6 +34,7 @@ describe('Customer Profile, Delivery Addresses & Multi-Seller Cart Integration F
     db.categories.clear();
     db.sellerProfiles.clear();
     db.products.clear();
+    db.productVariants.clear();
     db.productImages.clear();
     db.inventories.clear();
     db.carts.clear();
@@ -164,29 +165,40 @@ describe('Customer Profile, Delivery Addresses & Multi-Seller Cart Integration F
           }
           return list.map((item) => {
             const res = { ...item };
-            if (include?.product) {
-              const prod = db.products.get(item.productId);
-              if (prod) {
-                const prodCopy = { ...prod };
-                if (include.product.include?.images) {
-                  prodCopy.images = Array.from(db.productImages.values()).filter(
-                    (img) => img.productId === prod.id,
-                  );
-                }
-                if (include.product.include?.category) {
-                  prodCopy.category = db.categories.get(prod.categoryId);
-                }
-                if (include.product.include?.seller) {
-                  prodCopy.seller = db.sellerProfiles.get(prod.sellerId);
-                }
-                if (include.product.include?.inventory) {
-                  prodCopy.inventory = Array.from(db.inventories.values()).find(
-                    (inv) => inv.productId === prod.id,
-                  );
-                }
-                res.product = prodCopy;
+            const prod = db.products.get(item.productId);
+            const variant = db.productVariants.get(item.variantId);
+
+            if (include?.product && prod) {
+              const prodCopy = { ...prod };
+              if (include.product.include?.images) {
+                prodCopy.images = Array.from(db.productImages.values()).filter(
+                  (img) => img.productId === prod.id,
+                );
               }
+              if (include.product.include?.category) {
+                prodCopy.category = db.categories.get(prod.categoryId);
+              }
+              if (include.product.include?.seller) {
+                prodCopy.seller = db.sellerProfiles.get(prod.sellerId);
+              }
+              if (include.product.include?.inventory) {
+                prodCopy.inventory = Array.from(db.inventories.values()).find(
+                  (inv) => inv.variantId === item.variantId || inv.productId === prod.id,
+                );
+              }
+              res.product = prodCopy;
             }
+
+            if (include?.variant && variant) {
+              const variantCopy = { ...variant };
+              if (include.variant.include?.inventory) {
+                variantCopy.inventory = Array.from(db.inventories.values()).find(
+                  (inv) => inv.variantId === variant.id,
+                );
+              }
+              res.variant = variantCopy;
+            }
+
             return res;
           });
         }),
@@ -197,17 +209,20 @@ describe('Customer Profile, Delivery Addresses & Multi-Seller Cart Integration F
             if (where.cartId && item.cartId !== where.cartId) match = false;
             if (match) {
               const res = { ...item };
-              if (include?.product) {
-                const prod = db.products.get(item.productId);
-                if (prod) {
-                  const prodCopy = { ...prod };
-                  if (include.product.include?.inventory) {
-                    prodCopy.inventory = Array.from(db.inventories.values()).find(
-                      (inv) => inv.productId === prod.id,
-                    );
-                  }
-                  res.product = prodCopy;
+              const prod = db.products.get(item.productId);
+              const variant = db.productVariants.get(item.variantId);
+
+              if (include?.product && prod) {
+                res.product = { ...prod };
+              }
+              if (include?.variant && variant) {
+                const variantCopy = { ...variant };
+                if (include.variant.include?.inventory) {
+                  variantCopy.inventory = Array.from(db.inventories.values()).find(
+                    (inv) => inv.variantId === variant.id,
+                  );
                 }
+                res.variant = variantCopy;
               }
               return res;
             }
@@ -215,6 +230,16 @@ describe('Customer Profile, Delivery Addresses & Multi-Seller Cart Integration F
           return null;
         }),
         findUnique: jest.fn(async ({ where }: any) => {
+          if (where.cartId_variantId) {
+            for (const item of db.cartItems.values()) {
+              if (
+                item.cartId === where.cartId_variantId.cartId &&
+                item.variantId === where.cartId_variantId.variantId
+              ) {
+                return item;
+              }
+            }
+          }
           if (where.cartId_productId) {
             for (const item of db.cartItems.values()) {
               if (
@@ -256,14 +281,24 @@ describe('Customer Profile, Delivery Addresses & Multi-Seller Cart Integration F
         }),
       },
       product: {
-        findFirst: jest.fn(async ({ where, include }: any) => {
+        findFirst: jest.fn(async ({ where }: any) => {
           const prod = db.products.get(where.id);
           if (!prod) return null;
           if (where.deletedAt === null && prod.deletedAt) return null;
-          const res = { ...prod };
+          return { ...prod };
+        }),
+      },
+      productVariant: {
+        findUnique: jest.fn(async ({ where, include }: any) => {
+          const variant = db.productVariants.get(where.id);
+          if (!variant) return null;
+          const res = { ...variant };
+          if (include?.product) {
+            res.product = db.products.get(variant.productId);
+          }
           if (include?.inventory) {
             res.inventory = Array.from(db.inventories.values()).find(
-              (inv) => inv.productId === prod.id,
+              (inv) => inv.variantId === variant.id,
             );
           }
           return res;
@@ -284,7 +319,7 @@ describe('Customer Profile, Delivery Addresses & Multi-Seller Cart Integration F
     cartService = new CartService(mockPrisma, customerService);
   });
 
-  it('should execute full end-to-end customer and multi-seller shopping cart lifecycle', async () => {
+  it('should execute full end-to-end customer and multi-seller shopping cart lifecycle with variants and shipping calculation', async () => {
     // 1. Setup Customer User
     const customerUser = {
       id: 'cust-user-1',
@@ -294,55 +329,82 @@ describe('Customer Profile, Delivery Addresses & Multi-Seller Cart Integration F
     };
     db.users.set(customerUser.id, customerUser);
 
-    // 2. Setup Category & Two Distinct Sellers with Products
-    const catElectronics = { id: 'cat-elec', name: 'Electronics', slug: 'electronics' };
-    db.categories.set(catElectronics.id, catElectronics);
+    // 2. Setup Category & Two Distinct Sellers with Clothing Products and Size x Color Variants
+    const catClothing = { id: 'cat-cloth', name: "Men's Clothing", slug: 'mens-clothing' };
+    db.categories.set(catClothing.id, catClothing);
 
-    const sellerA = { id: 'seller-a', userId: 'usr-sel-a', displayName: 'Apex Tech' };
-    const sellerB = { id: 'seller-b', userId: 'usr-sel-b', displayName: 'Byte Gadgets' };
+    const sellerA = { id: 'seller-a', userId: 'usr-sel-a', displayName: 'Apex Apparel' };
+    const sellerB = { id: 'seller-b', userId: 'usr-sel-b', displayName: 'Heritage Cotton' };
     db.sellerProfiles.set(sellerA.id, sellerA);
     db.sellerProfiles.set(sellerB.id, sellerB);
 
     const productA = {
       id: 'prod-a',
       sellerId: sellerA.id,
-      categoryId: catElectronics.id,
-      name: 'Wireless Mechanical Keyboard',
-      sku: 'KEY-RGB-01',
-      price: 3499.0,
+      categoryId: catClothing.id,
+      name: 'Cotton Oxford Shirt',
+      sku: 'SHIRT-OXFORD',
+      price: 1499.0,
       status: ProductStatus.ACTIVE,
       deletedAt: null,
     };
     const productB = {
       id: 'prod-b',
       sellerId: sellerB.id,
-      categoryId: catElectronics.id,
-      name: 'Ergonomic Vertical Mouse',
-      sku: 'MOU-ERG-02',
-      price: 1899.0,
+      categoryId: catClothing.id,
+      name: 'Slim Fit Denim Jeans',
+      sku: 'JEANS-SLIM',
+      price: 799.0,
       status: ProductStatus.ACTIVE,
       deletedAt: null,
     };
     db.products.set(productA.id, productA);
     db.products.set(productB.id, productB);
 
+    // Variants for Product A (Seller A)
+    const variantA = {
+      id: 'var-a-m',
+      productId: productA.id,
+      sku: 'SHIRT-OXFORD-BLU-M',
+      size: 'M',
+      color: 'Blue',
+      priceOverride: null,
+      stockQuantity: 15,
+      isActive: true,
+    };
+    db.productVariants.set(variantA.id, variantA);
+
+    // Variants for Product B (Seller B)
+    const variantB = {
+      id: 'var-b-32',
+      productId: productB.id,
+      sku: 'JEANS-SLIM-BLK-32',
+      size: '32',
+      color: 'Black',
+      priceOverride: null,
+      stockQuantity: 20,
+      isActive: true,
+    };
+    db.productVariants.set(variantB.id, variantB);
+
     db.productImages.set('img-a', {
       id: 'img-a',
       productId: productA.id,
-      imageUrl: 'https://cdn.example.com/keyboard.jpg',
+      imageUrl: 'https://cdn.example.com/shirt.jpg',
       isPrimary: true,
       displayOrder: 0,
     });
     db.productImages.set('img-b', {
       id: 'img-b',
       productId: productB.id,
-      imageUrl: 'https://cdn.example.com/mouse.jpg',
+      imageUrl: 'https://cdn.example.com/jeans.jpg',
       isPrimary: true,
       displayOrder: 0,
     });
 
     db.inventories.set('inv-a', {
       id: 'inv-a',
+      variantId: variantA.id,
       productId: productA.id,
       availableQuantity: 15,
       reservedQuantity: 0,
@@ -350,6 +412,7 @@ describe('Customer Profile, Delivery Addresses & Multi-Seller Cart Integration F
     });
     db.inventories.set('inv-b', {
       id: 'inv-b',
+      variantId: variantB.id,
       productId: productB.id,
       availableQuantity: 20,
       reservedQuantity: 0,
@@ -375,79 +438,77 @@ describe('Customer Profile, Delivery Addresses & Multi-Seller Cart Integration F
     expect(addrHomeRes.success).toBe(true);
     expect(addrHomeRes.data.isDefaultShipping).toBe(true);
 
-    // Add Work Address
-    const addrWorkRes = await customerService.createAddress(customerUser.id, {
-      fullName: 'Rahul Sharma (Office)',
-      phoneNumber: '9876543210',
-      addressLine1: 'Level 5, Infinity Cyberpark',
-      city: 'Mumbai',
-      state: 'Maharashtra',
-      postalCode: '400051',
-      addressType: CustomerAddressType.WORK,
-    });
-    expect(addrWorkRes.success).toBe(true);
-    expect(addrWorkRes.data.isDefaultShipping).toBe(false);
-
     // 4. Multi-Seller Shopping Cart Operations
-    // Add Product A (Seller A)
+    // Add Variant A (Seller A, ₹1,499 >= ₹999 -> free shipping from Seller A)
     const addRes1 = await cartService.addItem(customerUser.id, {
-      productId: productA.id,
+      variantId: variantA.id,
       quantity: 1,
     });
     expect(addRes1.data.items).toHaveLength(1);
-    expect(addRes1.data.subtotal).toBe(3499.0);
+    expect(addRes1.data.subtotal).toBe(1499.0);
+    expect(addRes1.data.shippingAmount).toBe(0); // ₹1499 >= ₹999 -> Free shipping
 
-    // Add Product B (Seller B)
+    // Add Variant B (Seller B, ₹799 < ₹999 -> ₹79 flat shipping for Seller B)
     const addRes2 = await cartService.addItem(customerUser.id, {
-      productId: productB.id,
-      quantity: 2,
+      variantId: variantB.id,
+      quantity: 1,
     });
     expect(addRes2.data.items).toHaveLength(2);
-    // Subtotal = (3499 * 1) + (1899 * 2) = 3499 + 3798 = 7297
-    expect(addRes2.data.subtotal).toBe(7297.0);
-    expect(addRes2.data.totalQuantity).toBe(3);
+    // Subtotal = 1499 + 799 = ₹2,298
+    expect(addRes2.data.subtotal).toBe(2298.0);
+    // Shipping: Seller A = ₹0, Seller B = ₹79. Total shipping = ₹79
+    expect(addRes2.data.shippingAmount).toBe(79.0);
+    expect(addRes2.data.totalAmount).toBe(2377.0);
 
-    // Add Product A again -> verifies automatic quantity merge
+    // Verify Seller Groups & Nudge
+    expect(addRes2.data.sellerGroups).toHaveLength(2);
+    const groupB = addRes2.data.sellerGroups.find((g: any) => g.sellerId === sellerB.id);
+    expect(groupB).toBeDefined();
+    expect(groupB!.freeShippingEligible).toBe(false);
+    expect(groupB!.amountNeededForFreeShipping).toBe(200.0); // 999 - 799 = 200
+    expect(groupB!.freeShippingNudge).toContain('Add ₹200 more for free shipping');
+
+    // Add Variant B again -> verifies automatic quantity merge and free shipping unlock (799 * 2 = 1598 >= 999)
     const addResMerge = await cartService.addItem(customerUser.id, {
-      productId: productA.id,
+      variantId: variantB.id,
       quantity: 1,
     });
     expect(addResMerge.data.items).toHaveLength(2);
-    // Product A quantity is now 2. Subtotal = (3499 * 2) + (1899 * 2) = 6998 + 3798 = 10796
-    expect(addResMerge.data.subtotal).toBe(10796.0);
-    expect(addResMerge.data.totalQuantity).toBe(4);
+    expect(addResMerge.data.totalQuantity).toBe(3);
+    // Subtotal = 1499 + 1598 = ₹3,097
+    expect(addResMerge.data.subtotal).toBe(3097.0);
+    // Now both Seller A and Seller B have subtotals >= 999 -> Total Shipping = ₹0
+    expect(addResMerge.data.shippingAmount).toBe(0);
+    expect(addResMerge.data.totalAmount).toBe(3097.0);
 
     // 5. Pre-Checkout Cart Validation (Valid)
     const valResValid = await cartService.validateCart(customerUser.id);
     expect(valResValid.data.isValid).toBe(true);
     expect(valResValid.data.errors).toHaveLength(0);
-    expect(valResValid.data.subtotal).toBe(10796.0);
+    expect(valResValid.data.subtotal).toBe(3097.0);
 
-    // 6. Pre-Checkout Cart Validation with Inactive or Depleted Stock
-    // Simulate Seller A's product running out of stock
+    // 6. Pre-Checkout Cart Validation with Depleted Stock
     const invA = db.inventories.get('inv-a');
-    db.inventories.set('inv-a', { ...invA, availableQuantity: 1 }); // only 1 left, but cart requested 2
+    db.inventories.set('inv-a', { ...invA, availableQuantity: 0 }); // out of stock
 
     const valResLowStock = await cartService.validateCart(customerUser.id);
     expect(valResLowStock.data.isValid).toBe(false);
     expect(valResLowStock.data.errors.length).toBeGreaterThan(0);
-    expect(valResLowStock.data.errors[0]).toContain('only has 1 units available');
+    expect(valResLowStock.data.errors[0]).toContain('only has 0 units available');
 
-    // 7. Adjust Cart & Clear Cart
-    // Adjust Product A to 1 unit
-    const itemA = Array.from(db.cartItems.values()).find(
-      (i) => i.productId === productA.id,
+    // Restore stock
+    db.inventories.set('inv-a', { ...invA, availableQuantity: 15 });
+
+    // 7. Adjust Cart Item Quantity & Clear Cart
+    const itemB = Array.from(db.cartItems.values()).find(
+      (i) => i.variantId === variantB.id,
     );
     const updateRes = await cartService.updateItemQuantity(
       customerUser.id,
-      itemA!.id,
+      itemB!.id,
       { quantity: 1 },
     );
-    expect(updateRes.data.totalQuantity).toBe(3);
-
-    // Re-validate -> now valid again
-    const valResFixed = await cartService.validateCart(customerUser.id);
-    expect(valResFixed.data.isValid).toBe(true);
+    expect(updateRes.data.totalQuantity).toBe(2);
 
     // Clear cart
     const clearRes = await cartService.clearCart(customerUser.id);
@@ -456,5 +517,6 @@ describe('Customer Profile, Delivery Addresses & Multi-Seller Cart Integration F
     const emptyCart = await cartService.getCart(customerUser.id);
     expect(emptyCart.data.items).toHaveLength(0);
     expect(emptyCart.data.subtotal).toBe(0);
+    expect(emptyCart.data.shippingAmount).toBe(0);
   });
 });

@@ -8,15 +8,17 @@ import {
   IsString,
   Min,
   IsBoolean,
+  IsArray,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ReturnRequestStatus, RefundStatus } from '@prisma/client';
 
 export class CreateReturnRequestDto {
+  @IsOptional()
   @IsInt()
   @Min(1)
   @Type(() => Number)
-  returnQuantity: number;
+  returnQuantity?: number = 1;
 
   @IsString()
   @IsNotEmpty()
@@ -24,7 +26,30 @@ export class CreateReturnRequestDto {
 
   @IsString()
   @IsOptional()
+  reasonCategory?: string;
+
+  @IsString()
+  @IsOptional()
+  faultClassification?: 'SELLER_FAULT' | 'CUSTOMER_FAULT';
+
+  @IsString()
+  @IsOptional()
   customerComments?: string;
+
+  @IsArray()
+  @IsOptional()
+  @IsString({ each: true })
+  photoUrls?: string[];
+}
+
+export class CustomerShipReturnDto {
+  @IsString()
+  @IsNotEmpty()
+  courierName: string;
+
+  @IsString()
+  @IsNotEmpty()
+  trackingNumber: string;
 }
 
 export class ApproveReturnRequestDto {
@@ -55,6 +80,37 @@ export class RejectReturnRequestDto {
   adminRemarks?: string;
 }
 
+export class SellerRejectInspectionDto {
+  @IsString()
+  @IsNotEmpty()
+  reason: string;
+
+  @IsArray()
+  @IsOptional()
+  @IsString({ each: true })
+  photoUrls?: string[];
+}
+
+export class AdminResolveDisputeDto {
+  @IsString()
+  @IsNotEmpty()
+  resolution: 'OVERRULE_SELLER_APPROVE_REFUND' | 'UPHOLD_SELLER_REJECTION' | string;
+
+  @IsString()
+  @IsOptional()
+  faultClassification?: 'SELLER_FAULT' | 'CUSTOMER_FAULT';
+
+  @IsNumber()
+  @IsPositive()
+  @IsOptional()
+  @Type(() => Number)
+  returnShippingDeduction?: number;
+
+  @IsString()
+  @IsOptional()
+  adminNotes?: string;
+}
+
 export class CompleteReturnRequestDto {
   @IsBoolean()
   @IsOptional()
@@ -67,8 +123,17 @@ export class CompleteReturnRequestDto {
 
 export class ProcessRefundDto {
   @IsString()
-  @IsNotEmpty()
-  providerRefundId: string;
+  @IsOptional()
+  providerRefundId?: string;
+
+  @IsString()
+  @IsOptional()
+  faultClassification?: 'SELLER_FAULT' | 'CUSTOMER_FAULT';
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  returnShippingFee?: number;
 
   @IsString()
   @IsOptional()

@@ -7,43 +7,80 @@ import {
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { SettlementStatus, SettlementPayoutMethod } from '@prisma/client';
+import { SettlementBatchStatus, SettlementPayoutMethod } from '@prisma/client';
 
 export class PreviewSettlementDto {
   @IsString()
-  @IsNotEmpty()
-  sellerId: string;
+  @IsOptional()
+  sellerId?: string;
 
   @IsString()
-  @IsNotEmpty()
-  periodFrom: string;
+  @IsOptional()
+  periodFrom?: string;
 
   @IsString()
-  @IsNotEmpty()
-  periodTo: string;
+  @IsOptional()
+  periodTo?: string;
 }
 
 export class CreateSettlementDto {
   @IsString()
-  @IsNotEmpty()
-  sellerId: string;
+  @IsOptional()
+  sellerId?: string;
 
   @IsString()
-  @IsNotEmpty()
-  periodFrom: string;
+  @IsOptional()
+  periodFrom?: string;
 
   @IsString()
-  @IsNotEmpty()
-  periodTo: string;
+  @IsOptional()
+  periodTo?: string;
+}
+
+export class RunSettlementDto {
+  @IsString()
+  @IsOptional()
+  sellerId?: string;
+
+  @IsString()
+  @IsOptional()
+  periodFrom?: string;
+
+  @IsString()
+  @IsOptional()
+  periodTo?: string;
 }
 
 export class ProcessPayoutDto {
   @IsEnum(SettlementPayoutMethod)
-  payoutMethod: SettlementPayoutMethod;
+  @IsOptional()
+  payoutMethod?: SettlementPayoutMethod = SettlementPayoutMethod.BANK_TRANSFER;
 
   @IsString()
-  @IsNotEmpty()
-  payoutReference: string;
+  @IsOptional()
+  payoutReference?: string;
+
+  @IsString()
+  @IsOptional()
+  bankTransactionReference?: string;
+
+  @IsString()
+  @IsOptional()
+  payoutNotes?: string;
+}
+
+export class ConfirmPayoutDto {
+  @IsString()
+  @IsOptional()
+  bankTransactionReference?: string;
+
+  @IsString()
+  @IsOptional()
+  payoutReference?: string;
+
+  @IsEnum(SettlementPayoutMethod)
+  @IsOptional()
+  payoutMethod?: SettlementPayoutMethod = SettlementPayoutMethod.BANK_TRANSFER;
 
   @IsString()
   @IsOptional()
@@ -52,15 +89,26 @@ export class ProcessPayoutDto {
 
 export class RetryPayoutDto {
   @IsEnum(SettlementPayoutMethod)
-  payoutMethod: SettlementPayoutMethod;
+  @IsOptional()
+  payoutMethod?: SettlementPayoutMethod = SettlementPayoutMethod.BANK_TRANSFER;
 
   @IsString()
-  @IsNotEmpty()
-  payoutReference: string;
+  @IsOptional()
+  payoutReference?: string;
+
+  @IsString()
+  @IsOptional()
+  bankTransactionReference?: string;
 
   @IsString()
   @IsOptional()
   payoutNotes?: string;
+}
+
+export class WriteOffAdjustmentDto {
+  @IsString()
+  @IsNotEmpty()
+  reason: string;
 }
 
 export class SettlementQueryDto {
@@ -77,8 +125,8 @@ export class SettlementQueryDto {
   limit?: number = 20;
 
   @IsOptional()
-  @IsEnum(SettlementStatus)
-  status?: SettlementStatus;
+  @IsEnum(SettlementBatchStatus)
+  status?: SettlementBatchStatus;
 
   @IsOptional()
   @IsString()

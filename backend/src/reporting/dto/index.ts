@@ -104,3 +104,26 @@ export class ActivityLogQueryDto {
   @IsString()
   periodTo?: string;
 }
+
+export class RequestReportExportDto {
+  @IsString()
+  reportName: string;
+
+  @IsString()
+  reportType: string;
+
+  @IsOptional()
+  @IsString()
+  reportFormat?: 'CSV' | 'PDF' = 'CSV';
+
+  @IsOptional()
+  @IsString()
+  periodFrom?: string;
+
+  @IsOptional()
+  @IsString()
+  periodTo?: string;
+
+  @IsOptional()
+  filterParams?: Record<string, any>;
+}

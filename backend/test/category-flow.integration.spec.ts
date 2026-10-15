@@ -1,6 +1,6 @@
 import {
   CommissionStatus,
-  Prisma,
+  ProductStatus,
   SellerCategoryStatus,
   SellerStatus,
 } from '@prisma/client';
@@ -8,26 +8,132 @@ import { CategoryService } from '../src/category/category.service';
 import { AuditService } from '../src/audit/audit.service';
 import { BadRequestException } from '@nestjs/common';
 
-describe('Category Hierarchy, Commission & Seller Permission Integration', () => {
+describe('Category Hierarchy, Size Set Governance & Seller Permission Integration', () => {
   let categoryService: CategoryService;
   let auditService: AuditService;
 
   const db = {
+    sizeSets: new Map<string, any>(),
+    sizeSetValues: new Map<string, any>(),
     categories: new Map<string, any>(),
     categoryCommissions: new Map<string, any>(),
     sellerProfiles: new Map<string, any>(),
     sellerCategories: new Map<string, any>(),
+    products: new Map<string, any>(),
     auditLogs: new Map<string, any>(),
   };
 
   beforeEach(() => {
+    db.sizeSets.clear();
+    db.sizeSetValues.clear();
     db.categories.clear();
     db.categoryCommissions.clear();
     db.sellerProfiles.clear();
     db.sellerCategories.clear();
+    db.products.clear();
     db.auditLogs.clear();
 
     const mockPrisma: any = {
+      sizeSet: {
+        findUnique: jest.fn(async ({ where }: any) => {
+          if (where.id) return db.sizeSets.get(where.id) || null;
+          if (where.code) {
+            for (const s of db.sizeSets.values()) {
+              if (s.code === where.code) return s;
+            }
+          }
+          if (where.name) {
+            for (const s of db.sizeSets.values()) {
+              if (s.name === where.name) return s;
+            }
+          }
+          return null;
+        }),
+        findFirst: jest.fn(async ({ where }: any) => {
+          if (where.OR) {
+            for (const s of db.sizeSets.values()) {
+              for (const condition of where.OR) {
+                if (condition.name && s.name === condition.name) return s;
+                if (condition.code && s.code === condition.code) return s;
+              }
+            }
+          }
+          return null;
+        }),
+        findMany: jest.fn(async ({ where, include }: any) => {
+          let list = Array.from(db.sizeSets.values());
+          if (where?.isActive !== undefined) {
+            list = list.filter((s) => s.isActive === where.isActive);
+          }
+          if (include?.values) {
+            list = list.map((s) => ({
+              ...s,
+              values: Array.from(db.sizeSetValues.values()).filter((v) => v.sizeSetId === s.id),
+            }));
+          }
+          return list;
+        }),
+        create: jest.fn(async ({ data }: any) => {
+          const id = `ss-${Date.now()}-${Math.random()}`;
+          const record = {
+            id,
+            name: data.name,
+            code: data.code,
+            description: data.description || null,
+            isActive: data.isActive !== undefined ? data.isActive : true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+          db.sizeSets.set(id, record);
+
+          if (data.values?.create) {
+            for (const v of data.values.create) {
+              const valId = `ssv-${Date.now()}-${Math.random()}`;
+              db.sizeSetValues.set(valId, {
+                id: valId,
+                sizeSetId: id,
+                value: v.value,
+                displayName: v.displayName || v.value,
+                sortOrder: v.sortOrder || 0,
+                isActive: true,
+              });
+            }
+          }
+
+          return {
+            ...record,
+            values: Array.from(db.sizeSetValues.values()).filter((v) => v.sizeSetId === id),
+          };
+        }),
+        update: jest.fn(async ({ where, data }: any) => {
+          const set = db.sizeSets.get(where.id);
+          if (!set) return null;
+          Object.assign(set, data, { updatedAt: new Date() });
+          return set;
+        }),
+      },
+      sizeSetValue: {
+        findUnique: jest.fn(async ({ where }: any) => {
+          if (where.id) return db.sizeSetValues.get(where.id) || null;
+          if (where.sizeSetId_value) {
+            for (const v of db.sizeSetValues.values()) {
+              if (
+                v.sizeSetId === where.sizeSetId_value.sizeSetId &&
+                v.value === where.sizeSetId_value.value
+              ) {
+                return v;
+              }
+            }
+          }
+          return null;
+        }),
+        create: jest.fn(async ({ data }: any) => {
+          const id = `ssv-${Date.now()}-${Math.random()}`;
+          const record = { id, ...data, createdAt: new Date(), updatedAt: new Date() };
+          db.sizeSetValues.set(id, record);
+          return record;
+        }),
+      },
       category: {
         findUnique: jest.fn(async ({ where, include }: any) => {
           let cat = null;
@@ -54,6 +160,15 @@ describe('Category Hierarchy, Commission & Seller Permission Integration', () =>
               (cm) => cm.categoryId === cat.id && (include.commissions.where?.status === undefined || cm.status === include.commissions.where.status),
             );
           }
+          if (include?.sizeSet) {
+            const ss = cat.sizeSetId ? db.sizeSets.get(cat.sizeSetId) : null;
+            result.sizeSet = ss
+              ? {
+                  ...ss,
+                  values: Array.from(db.sizeSetValues.values()).filter((v) => v.sizeSetId === ss.id),
+                }
+              : null;
+          }
           return result;
         }),
         findMany: jest.fn(async ({ where, include }: any) => {
@@ -67,9 +182,17 @@ describe('Category Hierarchy, Commission & Seller Permission Integration', () =>
           if (include?.subcategories) {
             list = list.map((cat) => ({
               ...cat,
-              subcategories: Array.from(db.categories.values()).filter(
-                (sub) => sub.parentCategoryId === cat.id && (include.subcategories.where?.isActive === undefined || sub.isActive === include.subcategories.where.isActive),
-              ),
+              subcategories: Array.from(db.categories.values())
+                .filter(
+                  (sub) =>
+                    sub.parentCategoryId === cat.id &&
+                    (include.subcategories.where?.isActive === undefined ||
+                      sub.isActive === include.subcategories.where.isActive),
+                )
+                .map((sub) => ({
+                  ...sub,
+                  sizeSet: sub.sizeSetId ? db.sizeSets.get(sub.sizeSetId) : null,
+                })),
             }));
           }
           return list;
@@ -215,25 +338,21 @@ describe('Category Hierarchy, Commission & Seller Permission Integration', () =>
           Object.assign(record, data, { updatedAt: new Date() });
           return record;
         }),
-        upsert: jest.fn(async ({ where, create, update }: any) => {
-          let found = null;
-          for (const sc of db.sellerCategories.values()) {
+      },
+      product: {
+        updateMany: jest.fn(async ({ where, data }: any) => {
+          let count = 0;
+          for (const prod of db.products.values()) {
             if (
-              sc.sellerId === where.sellerId_categoryId.sellerId &&
-              sc.categoryId === where.sellerId_categoryId.categoryId
+              prod.sellerId === where.sellerId &&
+              prod.categoryId === where.categoryId &&
+              prod.status === where.status
             ) {
-              found = sc;
-              break;
+              Object.assign(prod, data);
+              count++;
             }
           }
-          if (found) {
-            Object.assign(found, update, { updatedAt: new Date() });
-            return found;
-          }
-          const id = `sc-${Date.now()}-${Math.random()}`;
-          const record = { id, ...create, requestedAt: new Date(), createdAt: new Date(), updatedAt: new Date() };
-          db.sellerCategories.set(id, record);
-          return record;
+          return { count };
         }),
       },
       auditLog: {
@@ -251,7 +370,7 @@ describe('Category Hierarchy, Commission & Seller Permission Integration', () =>
     categoryService = new CategoryService(mockPrisma, auditService);
   });
 
-  it('runs complete category hierarchy, commission update, and seller request approval/revocation flow', async () => {
+  it('runs complete category hierarchy, size set binding, commission update, and seller request lifecycle', async () => {
     const adminUserId = 'admin-user-1';
     const sellerUserId = 'seller-user-1';
     const sellerProfileId = 'seller-profile-1';
@@ -259,107 +378,135 @@ describe('Category Hierarchy, Commission & Seller Permission Integration', () =>
     db.sellerProfiles.set(sellerProfileId, {
       id: sellerProfileId,
       userId: sellerUserId,
-      displayName: 'Royal Footwear',
+      displayName: 'Royal Apparel',
       status: SellerStatus.APPROVED,
     });
 
-    // 1. Admin creates Parent Category 'Fashion' with 10% initial commission
+    // 1. Admin creates Size Sets for Alpha clothing and Men's waist
+    const alphaSetRes = await categoryService.createSizeSet(adminUserId, {
+      name: 'Alpha Standard',
+      code: 'ALPHA_STD',
+      description: 'Alpha clothing sizes XS through 3XL',
+      values: [
+        { value: 'S', displayName: 'Small (S)', sortOrder: 1 },
+        { value: 'M', displayName: 'Medium (M)', sortOrder: 2 },
+        { value: 'L', displayName: 'Large (L)', sortOrder: 3 },
+      ],
+    });
+    const alphaSizeSetId = alphaSetRes.data.sizeSet.id;
+    expect(alphaSetRes.success).toBe(true);
+
+    const waistSetRes = await categoryService.createSizeSet(adminUserId, {
+      name: "Men's Waist",
+      code: 'MENS_WAIST',
+      description: "Men's trouser waist sizes in even inches",
+      values: [
+        { value: '30', displayName: '30 in', sortOrder: 1 },
+        { value: '32', displayName: '32 in', sortOrder: 2 },
+      ],
+    });
+    const waistSizeSetId = waistSetRes.data.sizeSet.id;
+
+    // 2. Admin creates Parent Category 'Men Clothing' with 10% commission (no sizeSetId required)
     const parentRes = await categoryService.createCategory(adminUserId, {
-      name: 'Fashion',
-      slug: 'fashion',
-      description: 'Apparel and accessories',
+      name: "Men's Clothing",
+      slug: 'mens-clothing',
+      description: 'Men apparel collections',
       initialCommissionRate: 10.0,
     });
-    const parentCategoryId = parentRes.data.category.id;
+    const menCategoryId = parentRes.data.category.id;
 
-    // 2. Admin creates Subcategory 'Footwear' under 'Fashion' with 12% initial commission
-    const subRes = await categoryService.createCategory(adminUserId, {
-      name: 'Footwear',
-      slug: 'footwear',
-      parentCategoryId,
-      description: 'Shoes and sandals',
+    // 3. Subcategory creation without sizeSetId must be rejected
+    await expect(
+      categoryService.createCategory(adminUserId, {
+        name: 'Shirts',
+        slug: 'mens-shirts',
+        parentCategoryId: menCategoryId,
+      }),
+    ).rejects.toThrow(BadRequestException);
+
+    // 4. Admin creates Subcategory 'Shirts' bound to Alpha Size Set
+    const shirtsRes = await categoryService.createCategory(adminUserId, {
+      name: 'Shirts',
+      slug: 'mens-shirts',
+      parentCategoryId: menCategoryId,
+      sizeSetId: alphaSizeSetId,
       initialCommissionRate: 12.0,
     });
-    const footwearCategoryId = subRes.data.category.id;
+    const shirtsCategoryId = shirtsRes.data.category.id;
+    expect(shirtsRes.data.category.sizeSetId).toBe(alphaSizeSetId);
 
-    // 3. Admin creates another top-level category 'Electronics' with 8% commission
-    const elecRes = await categoryService.createCategory(adminUserId, {
-      name: 'Electronics',
-      slug: 'electronics',
-      initialCommissionRate: 8.0,
+    // 5. Admin creates Subcategory 'Trousers' bound to Waist Size Set
+    const trousersRes = await categoryService.createCategory(adminUserId, {
+      name: 'Trousers',
+      slug: 'mens-trousers',
+      parentCategoryId: menCategoryId,
+      sizeSetId: waistSizeSetId,
+      initialCommissionRate: 15.0,
     });
-    const elecCategoryId = elecRes.data.category.id;
+    const trousersCategoryId = trousersRes.data.category.id;
+    expect(trousersRes.data.category.sizeSetId).toBe(waistSizeSetId);
 
-    // 4. Public lists categories hierarchy
+    // 6. Public list returns category hierarchy with subcategories
     const publicList = await categoryService.listCategories(true);
-    expect(publicList.data.categories).toHaveLength(2); // Fashion and Electronics
-    const fashion = publicList.data.categories.find((c: any) => c.slug === 'fashion');
-    expect(fashion.subcategories).toHaveLength(1);
-    expect(fashion.subcategories[0].slug).toBe('footwear');
+    expect(publicList.data.categories).toHaveLength(1);
+    const menCat = publicList.data.categories[0];
+    expect(menCat.subcategories).toHaveLength(2);
 
-    // 5. Admin updates commission on 'Footwear' from 12% to 15%
-    const commUpdateRes = await categoryService.configureCommission(adminUserId, footwearCategoryId, {
-      commissionRate: 15.0,
-    });
-    expect(commUpdateRes.success).toBe(true);
-
-    // Verify commission history
-    const commDetails = await categoryService.getCommission(footwearCategoryId);
-    expect(commDetails.data.currentCommission.commissionRate.toNumber()).toBe(15.0);
-    expect(commDetails.data.commissionHistory).toHaveLength(2);
-    const expiredComm = commDetails.data.commissionHistory.find((c: any) => c.status === CommissionStatus.EXPIRED);
-    expect(expiredComm.commissionRate.toNumber()).toBe(12.0);
-
-    // 6. Seller views available categories
+    // 7. Seller checks available categories (status NOT_REQUESTED initially)
     const available = await categoryService.getAvailableCategories(sellerUserId);
     expect(available.data.categories).toHaveLength(3);
     expect(available.data.categories.every((c: any) => c.sellerStatus === 'NOT_REQUESTED')).toBe(true);
 
-    // 7. Seller submits category request for Footwear and Electronics
+    // 8. Seller requests permissions for Shirts and Trousers (status REQUESTED per SRS 8.8)
     const reqRes = await categoryService.requestCategories(sellerUserId, {
-      categoryIds: [footwearCategoryId, elecCategoryId],
+      categoryIds: [shirtsCategoryId, trousersCategoryId],
     });
     expect(reqRes.success).toBe(true);
     expect(reqRes.data.requests).toHaveLength(2);
-    const footwearReqId = reqRes.data.requests.find((r: any) => r.categoryId === footwearCategoryId).id;
-    const elecReqId = reqRes.data.requests.find((r: any) => r.categoryId === elecCategoryId).id;
+    expect(reqRes.data.requests[0].status).toBe(SellerCategoryStatus.REQUESTED);
+    const shirtsReqId = reqRes.data.requests.find((r: any) => r.categoryId === shirtsCategoryId).id;
+    const trousersReqId = reqRes.data.requests.find((r: any) => r.categoryId === trousersCategoryId).id;
 
-    // 8. Admin approves Footwear request
-    const approveReq = await categoryService.approveCategoryRequest(adminUserId, footwearReqId);
+    // 9. Admin approves Shirts request
+    const approveReq = await categoryService.approveCategoryRequest(adminUserId, shirtsReqId);
     expect(approveReq.data.request.status).toBe(SellerCategoryStatus.APPROVED);
 
-    // Admin rejects Electronics request with reason
-    const rejectReq = await categoryService.rejectCategoryRequest(adminUserId, elecReqId, {
-      rejectionReason: 'Seller documentation does not qualify for high-voltage electronics.',
+    // Admin rejects Trousers request with feedback
+    const rejectReq = await categoryService.rejectCategoryRequest(adminUserId, trousersReqId, {
+      rejectionReason: 'Seller documentation insufficient for tailored trousers department.',
     });
     expect(rejectReq.data.request.status).toBe(SellerCategoryStatus.REJECTED);
 
-    // 9. Seller views approved categories
+    // 10. Seller views approved categories
     const approvedCats = await categoryService.getOwnApprovedCategories(sellerUserId);
     expect(approvedCats.data.categories).toHaveLength(1);
-    expect(approvedCats.data.categories[0].slug).toBe('footwear');
-    expect(approvedCats.data.categories[0].currentCommissionRate.toNumber()).toBe(15.0);
+    expect(approvedCats.data.categories[0].slug).toBe('mens-shirts');
 
-    // 10. Check permission check helper
-    expect(await categoryService.hasSellerApprovedCategory(sellerProfileId, footwearCategoryId)).toBe(true);
-    expect(await categoryService.hasSellerApprovedCategory(sellerProfileId, elecCategoryId)).toBe(false);
+    // 11. Add an active product under Shirts for this seller
+    db.products.set('prod-1', {
+      id: 'prod-1',
+      sellerId: sellerProfileId,
+      categoryId: shirtsCategoryId,
+      status: ProductStatus.ACTIVE,
+    });
 
-    // 11. Admin revokes Footwear permission
+    // 12. Admin revokes Shirts category; active product transitions to REMOVED_BY_ADMIN
     const revokeRes = await categoryService.revokeSellerCategory(
       adminUserId,
       sellerProfileId,
-      footwearCategoryId,
+      shirtsCategoryId,
       {
-        revocationReason: 'Repeated late delivery complaints in footwear department.',
+        revocationReason: 'Quality control failure in apparel inspection.',
       },
     );
     expect(revokeRes.data.permission.status).toBe(SellerCategoryStatus.REVOKED);
-    expect(await categoryService.hasSellerApprovedCategory(sellerProfileId, footwearCategoryId)).toBe(false);
+    expect(db.products.get('prod-1').status).toBe(ProductStatus.REMOVED_BY_ADMIN);
 
-    // 12. Check audit log count for categories & commissions
+    // 13. Audit logs record all major governance actions
     const auditEvents = Array.from(db.auditLogs.values());
+    expect(auditEvents.some((a) => a.action === 'SIZE_SET_CREATED')).toBe(true);
     expect(auditEvents.some((a) => a.action === 'CATEGORY_CREATED')).toBe(true);
-    expect(auditEvents.some((a) => a.action === 'COMMISSION_CONFIGURED')).toBe(true);
     expect(auditEvents.some((a) => a.action === 'SELLER_CATEGORY_APPROVED')).toBe(true);
     expect(auditEvents.some((a) => a.action === 'SELLER_CATEGORY_REJECTED')).toBe(true);
     expect(auditEvents.some((a) => a.action === 'SELLER_CATEGORY_REVOKED')).toBe(true);

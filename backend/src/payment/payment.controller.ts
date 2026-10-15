@@ -21,7 +21,8 @@ export class PaymentController {
   constructor(private readonly paymentService: PaymentService) {}
 
   @Post('confirm')
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles('CUSTOMER')
   @HttpCode(HttpStatus.OK)
   async confirmPayment(
     @Req() req: AuthenticatedRequest,
@@ -31,7 +32,8 @@ export class PaymentController {
   }
 
   @Get(':paymentReference')
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles('CUSTOMER')
   async getPaymentStatus(
     @Req() req: AuthenticatedRequest,
     @Param('paymentReference') paymentReference: string,

@@ -16,8 +16,18 @@ import {
   RejectCategoryRequestDto,
   RevokeCategoryDto,
   UpdateCategoryDto,
+  CreateSizeSetDto,
+  UpdateSizeSetDto,
+  AddSizeSetValueDto,
+  SizeSetQueryDto,
 } from './dto';
-import { CommissionStatus, Prisma, SellerCategoryStatus, SellerStatus } from '@prisma/client';
+import {
+  CommissionStatus,
+  Prisma,
+  ProductStatus,
+  SellerCategoryStatus,
+  SellerStatus,
+} from '@prisma/client';
 
 @Injectable()
 export class CategoryService {
@@ -40,9 +50,27 @@ export class CategoryService {
       where,
       orderBy: { name: 'asc' },
       include: {
+        sizeSet: {
+          include: {
+            values: {
+              where: publicOnly ? { isActive: true } : undefined,
+              orderBy: { sortOrder: 'asc' },
+            },
+          },
+        },
         subcategories: {
           where: publicOnly ? { isActive: true } : undefined,
           orderBy: { name: 'asc' },
+          include: {
+            sizeSet: {
+              include: {
+                values: {
+                  where: publicOnly ? { isActive: true } : undefined,
+                  orderBy: { sortOrder: 'asc' },
+                },
+              },
+            },
+          },
         },
       },
     });
@@ -59,7 +87,26 @@ export class CategoryService {
       where: { id: categoryId },
       include: {
         parentCategory: true,
-        subcategories: true,
+        sizeSet: {
+          include: {
+            values: {
+              where: { isActive: true },
+              orderBy: { sortOrder: 'asc' },
+            },
+          },
+        },
+        subcategories: {
+          include: {
+            sizeSet: {
+              include: {
+                values: {
+                  where: { isActive: true },
+                  orderBy: { sortOrder: 'asc' },
+                },
+              },
+            },
+          },
+        },
         commissions: {
           where: { status: CommissionStatus.ACTIVE },
           take: 1,
@@ -91,6 +138,13 @@ export class CategoryService {
       if (!parent) {
         throw new NotFoundException('Parent category not found');
       }
+      if (!dto.sizeSetId) {
+        throw new BadRequestException('Subcategories must be assigned a valid sizeSetId');
+      }
+      const sizeSet = await this.prisma.sizeSet.findUnique({ where: { id: dto.sizeSetId } });
+      if (!sizeSet) {
+        throw new NotFoundException('Size set not found');
+      }
     }
 
     const category = await this.prisma.$transaction(async (tx) => {
@@ -100,6 +154,7 @@ export class CategoryService {
           slug: dto.slug.trim().toLowerCase(),
           description: dto.description?.trim() || null,
           parentCategoryId: dto.parentCategoryId || null,
+          sizeSetId: dto.sizeSetId || null,
           createdById: adminUserId,
           isActive: true,
         },
@@ -129,6 +184,7 @@ export class CategoryService {
         name: category.name,
         slug: category.slug,
         parentCategoryId: category.parentCategoryId,
+        sizeSetId: category.sizeSetId,
         initialCommissionRate: dto.initialCommissionRate,
       },
     });
@@ -153,12 +209,26 @@ export class CategoryService {
       }
     }
 
+    if (dto.sizeSetId !== undefined) {
+      const isSubcategory = !!category.parentCategoryId;
+      if (isSubcategory && !dto.sizeSetId) {
+        throw new BadRequestException('Subcategories must be assigned a valid sizeSetId');
+      }
+      if (dto.sizeSetId) {
+        const sizeSet = await this.prisma.sizeSet.findUnique({ where: { id: dto.sizeSetId } });
+        if (!sizeSet) {
+          throw new NotFoundException('Size set not found');
+        }
+      }
+    }
+
     const updated = await this.prisma.category.update({
       where: { id: categoryId },
       data: {
         name: dto.name?.trim() ?? category.name,
         slug: dto.slug?.trim().toLowerCase() ?? category.slug,
         description: dto.description !== undefined ? dto.description?.trim() : category.description,
+        sizeSetId: dto.sizeSetId !== undefined ? (dto.sizeSetId || null) : category.sizeSetId,
         isActive: dto.isActive !== undefined ? dto.isActive : category.isActive,
       },
     });
@@ -392,7 +462,7 @@ export class CategoryService {
           requestedResults.push({ categoryId, status: existing.status, note: 'Already approved' });
           continue;
         }
-        if (existing.status === SellerCategoryStatus.PENDING) {
+        if (existing.status === SellerCategoryStatus.REQUESTED) {
           requestedResults.push({ categoryId, status: existing.status, note: 'Already pending review' });
           continue;
         }
@@ -400,7 +470,7 @@ export class CategoryService {
         const updated = await this.prisma.sellerCategory.update({
           where: { id: existing.id },
           data: {
-            status: SellerCategoryStatus.PENDING,
+            status: SellerCategoryStatus.REQUESTED,
             requestedAt: new Date(),
             reviewedAt: null,
             reviewedById: null,
@@ -415,7 +485,7 @@ export class CategoryService {
           data: {
             sellerId: seller.id,
             categoryId,
-            status: SellerCategoryStatus.PENDING,
+            status: SellerCategoryStatus.REQUESTED,
           },
         });
         requestedResults.push(created);
@@ -670,6 +740,18 @@ export class CategoryService {
       },
     });
 
+    // Move any active listings in revoked category to REMOVED_BY_ADMIN (SRS Section 8.8)
+    await this.prisma.product.updateMany({
+      where: {
+        sellerId,
+        categoryId,
+        status: ProductStatus.ACTIVE,
+      },
+      data: {
+        status: ProductStatus.REMOVED_BY_ADMIN,
+      },
+    });
+
     await this.auditService.logAction({
       userId: adminUserId,
       action: 'SELLER_CATEGORY_REVOKED',
@@ -764,4 +846,289 @@ export class CategoryService {
 
     return permission?.status === SellerCategoryStatus.APPROVED;
   }
+
+  // ================= SUPER ADMIN SIZE SET MANAGEMENT =================
+
+  async createSizeSet(adminUserId: string, dto: CreateSizeSetDto): Promise<any> {
+    const normalizedCode = dto.code.trim().toUpperCase();
+    const existing = await this.prisma.sizeSet.findFirst({
+      where: {
+        OR: [{ name: dto.name.trim() }, { code: normalizedCode }],
+      },
+    });
+    if (existing) {
+      throw new ConflictException(`Size set with name '${dto.name}' or code '${normalizedCode}' already exists`);
+    }
+
+    const sizeSet = await this.prisma.sizeSet.create({
+      data: {
+        name: dto.name.trim(),
+        code: normalizedCode,
+        description: dto.description?.trim() || null,
+        isActive: true,
+        values: dto.values?.length
+          ? {
+              create: dto.values.map((v, index) => ({
+                value: v.value.trim(),
+                displayName: v.displayName?.trim() || v.value.trim(),
+                sortOrder: v.sortOrder ?? index + 1,
+                isActive: true,
+              })),
+            }
+          : undefined,
+      },
+      include: {
+        values: {
+          orderBy: { sortOrder: 'asc' },
+        },
+      },
+    });
+
+    await this.auditService.logAction({
+      userId: adminUserId,
+      action: 'SIZE_SET_CREATED',
+      resourceType: 'SizeSet',
+      resourceId: sizeSet.id,
+      newValue: { name: sizeSet.name, code: sizeSet.code },
+    });
+
+    return {
+      success: true,
+      data: { sizeSet },
+      message: 'Size set created successfully',
+    };
+  }
+
+  async listSizeSets(query?: SizeSetQueryDto): Promise<any> {
+    const where: Prisma.SizeSetWhereInput = {};
+    if (!query?.includeInactive) {
+      where.isActive = true;
+    }
+
+    const sizeSets = await this.prisma.sizeSet.findMany({
+      where,
+      orderBy: { name: 'asc' },
+      include: {
+        values: {
+          where: query?.includeInactive ? undefined : { isActive: true },
+          orderBy: { sortOrder: 'asc' },
+        },
+      },
+    });
+
+    return {
+      success: true,
+      data: { sizeSets },
+      message: 'Size sets retrieved successfully',
+    };
+  }
+
+  async getSizeSetById(id: string): Promise<any> {
+    const sizeSet = await this.prisma.sizeSet.findUnique({
+      where: { id },
+      include: {
+        values: {
+          orderBy: { sortOrder: 'asc' },
+        },
+      },
+    });
+
+    if (!sizeSet) {
+      throw new NotFoundException('Size set not found');
+    }
+
+    return {
+      success: true,
+      data: { sizeSet },
+      message: 'Size set retrieved successfully',
+    };
+  }
+
+  async updateSizeSet(adminUserId: string, id: string, dto: UpdateSizeSetDto): Promise<any> {
+    const sizeSet = await this.prisma.sizeSet.findUnique({ where: { id } });
+    if (!sizeSet) {
+      throw new NotFoundException('Size set not found');
+    }
+
+    if (dto.name && dto.name.trim() !== sizeSet.name) {
+      const existingName = await this.prisma.sizeSet.findUnique({ where: { name: dto.name.trim() } });
+      if (existingName) {
+        throw new ConflictException(`Size set with name '${dto.name}' already exists`);
+      }
+    }
+
+    const updated = await this.prisma.sizeSet.update({
+      where: { id },
+      data: {
+        name: dto.name !== undefined ? dto.name.trim() : sizeSet.name,
+        description: dto.description !== undefined ? dto.description?.trim() : sizeSet.description,
+        isActive: dto.isActive !== undefined ? dto.isActive : sizeSet.isActive,
+      },
+      include: {
+        values: {
+          orderBy: { sortOrder: 'asc' },
+        },
+      },
+    });
+
+    await this.auditService.logAction({
+      userId: adminUserId,
+      action: 'SIZE_SET_UPDATED',
+      resourceType: 'SizeSet',
+      resourceId: id,
+      previousValue: { name: sizeSet.name, isActive: sizeSet.isActive },
+      newValue: { name: updated.name, isActive: updated.isActive },
+    });
+
+    return {
+      success: true,
+      data: { sizeSet: updated },
+      message: 'Size set updated successfully',
+    };
+  }
+
+  async addSizeSetValue(adminUserId: string, sizeSetId: string, dto: AddSizeSetValueDto): Promise<any> {
+    const sizeSet = await this.prisma.sizeSet.findUnique({ where: { id: sizeSetId } });
+    if (!sizeSet) {
+      throw new NotFoundException('Size set not found');
+    }
+
+    const existingValue = await this.prisma.sizeSetValue.findUnique({
+      where: {
+        sizeSetId_value: {
+          sizeSetId,
+          value: dto.value.trim(),
+        },
+      },
+    });
+
+    if (existingValue) {
+      throw new ConflictException(`Size value '${dto.value}' already exists in this size set`);
+    }
+
+    const created = await this.prisma.sizeSetValue.create({
+      data: {
+        sizeSetId,
+        value: dto.value.trim(),
+        displayName: dto.displayName?.trim() || dto.value.trim(),
+        sortOrder: dto.sortOrder ?? 0,
+        isActive: true,
+      },
+    });
+
+    await this.auditService.logAction({
+      userId: adminUserId,
+      action: 'SIZE_SET_VALUE_ADDED',
+      resourceType: 'SizeSetValue',
+      resourceId: created.id,
+      newValue: { sizeSetId, value: created.value, sortOrder: created.sortOrder },
+    });
+
+    return {
+      success: true,
+      data: { value: created },
+      message: 'Size set value added successfully',
+    };
+  }
+
+  async seedDefaultSizeSets(): Promise<any> {
+    const seeded = [];
+    for (const set of DEFAULT_SIZE_SETS) {
+      const existing = await this.prisma.sizeSet.findUnique({ where: { code: set.code } });
+      if (!existing) {
+        const created = await this.prisma.sizeSet.create({
+          data: {
+            name: set.name,
+            code: set.code,
+            description: set.description,
+            isActive: true,
+            values: {
+              create: set.values,
+            },
+          },
+          include: { values: true },
+        });
+        seeded.push(created);
+      } else {
+        seeded.push(existing);
+      }
+    }
+    return seeded;
+  }
 }
+
+export const DEFAULT_SIZE_SETS = [
+  {
+    name: 'Alpha Standard',
+    code: 'ALPHA_STD',
+    description: 'Standard alpha clothing sizing (XS through 3XL)',
+    values: [
+      { value: 'XS', displayName: 'Extra Small (XS)', sortOrder: 1 },
+      { value: 'S', displayName: 'Small (S)', sortOrder: 2 },
+      { value: 'M', displayName: 'Medium (M)', sortOrder: 3 },
+      { value: 'L', displayName: 'Large (L)', sortOrder: 4 },
+      { value: 'XL', displayName: 'Extra Large (XL)', sortOrder: 5 },
+      { value: 'XXL', displayName: 'Double Extra Large (XXL)', sortOrder: 6 },
+      { value: '3XL', displayName: 'Triple Extra Large (3XL)', sortOrder: 7 },
+    ],
+  },
+  {
+    name: "Men's Waist",
+    code: 'MENS_WAIST',
+    description: "Men's trouser and jeans waist sizing (28 to 42 even inches)",
+    values: [
+      { value: '28', displayName: '28 in', sortOrder: 1 },
+      { value: '30', displayName: '30 in', sortOrder: 2 },
+      { value: '32', displayName: '32 in', sortOrder: 3 },
+      { value: '34', displayName: '34 in', sortOrder: 4 },
+      { value: '36', displayName: '36 in', sortOrder: 5 },
+      { value: '38', displayName: '38 in', sortOrder: 6 },
+      { value: '40', displayName: '40 in', sortOrder: 7 },
+      { value: '42', displayName: '42 in', sortOrder: 8 },
+    ],
+  },
+  {
+    name: "Women's Waist",
+    code: 'WOMENS_WAIST',
+    description: "Women's trousers, skirts, and denim waist sizing (26 to 38 even inches)",
+    values: [
+      { value: '26', displayName: '26 in', sortOrder: 1 },
+      { value: '28', displayName: '28 in', sortOrder: 2 },
+      { value: '30', displayName: '30 in', sortOrder: 3 },
+      { value: '32', displayName: '32 in', sortOrder: 4 },
+      { value: '34', displayName: '34 in', sortOrder: 5 },
+      { value: '36', displayName: '36 in', sortOrder: 6 },
+      { value: '38', displayName: '38 in', sortOrder: 7 },
+    ],
+  },
+  {
+    name: "Kids' Age Brackets",
+    code: 'KIDS_AGE',
+    description: "Kids' apparel age-based size brackets from infants to teens",
+    values: [
+      { value: '0-3M', displayName: '0-3 Months', sortOrder: 1 },
+      { value: '3-6M', displayName: '3-6 Months', sortOrder: 2 },
+      { value: '6-12M', displayName: '6-12 Months', sortOrder: 3 },
+      { value: '1-2Y', displayName: '1-2 Years', sortOrder: 4 },
+      { value: '2-3Y', displayName: '2-3 Years', sortOrder: 5 },
+      { value: '3-4Y', displayName: '3-4 Years', sortOrder: 6 },
+      { value: '4-5Y', displayName: '4-5 Years', sortOrder: 7 },
+      { value: '5-6Y', displayName: '5-6 Years', sortOrder: 8 },
+      { value: '6-7Y', displayName: '6-7 Years', sortOrder: 9 },
+      { value: '7-8Y', displayName: '7-8 Years', sortOrder: 10 },
+      { value: '8-9Y', displayName: '8-9 Years', sortOrder: 11 },
+      { value: '9-10Y', displayName: '9-10 Years', sortOrder: 12 },
+      { value: '10-11Y', displayName: '10-11 Years', sortOrder: 13 },
+      { value: '11-12Y', displayName: '11-12 Years', sortOrder: 14 },
+      { value: '12-13Y', displayName: '12-13 Years', sortOrder: 15 },
+    ],
+  },
+  {
+    name: 'Free Size',
+    code: 'FREE_SIZE',
+    description: 'One-size-fits-all apparel (e.g. Sarees, Shawls, Scarves)',
+    values: [
+      { value: 'Free Size', displayName: 'Free Size / One Size', sortOrder: 1 },
+    ],
+  },
+];

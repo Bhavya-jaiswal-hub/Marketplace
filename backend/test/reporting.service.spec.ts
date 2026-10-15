@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ReportingService } from '../src/reporting/reporting.service';
 import { PrismaService } from '../src/prisma.service';
+import { NotFoundException, ForbiddenException } from '@nestjs/common';
 import { Decimal } from '@prisma/client/runtime/library';
 import {
   OrderStatus,
@@ -49,6 +50,10 @@ describe('ReportingService', () => {
         count: jest.fn(),
         create: jest.fn(),
       },
+      reportMetadata: {
+        create: jest.fn(),
+        findUnique: jest.fn(),
+      },
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -67,7 +72,7 @@ describe('ReportingService', () => {
         {
           id: 'ord-1',
           orderNumber: 'ORD-101',
-          orderStatus: OrderStatus.CONFIRMED,
+          orderStatus: OrderStatus.DELIVERED,
           paymentStatus: PaymentStatus.PAID,
           subtotal: new Decimal(2000.0),
           discountAmount: new Decimal(100.0),
@@ -199,6 +204,123 @@ describe('ReportingService', () => {
       expect(res.success).toBe(true);
       expect(res.data.items).toHaveLength(1);
       expect(res.data.items[0].action).toBe('SELLER_APPROVED');
+    });
+  });
+
+  describe('getAdminSalesReport (SRS FR-14, BR-7)', () => {
+    it('should segregate Super Admin retail clothing sales with 0% commission rate', async () => {
+      mockPrisma.orderItem.findMany.mockResolvedValue([
+        {
+          id: 'item-admin-1',
+          orderId: 'ord-101',
+          order: { orderNumber: 'ORD-101' },
+          productName: 'Admin Formal Suit',
+          sku: 'SUIT-ADM-01',
+          quantity: 2,
+          unitPrice: new Decimal(4000.0),
+          totalAmount: new Decimal(8000.0),
+          status: 'DELIVERED',
+          createdAt: new Date(),
+          seller: {
+            displayName: 'Marketplace Direct Retail',
+            user: { role: { name: 'SUPER_ADMIN' } },
+          },
+        },
+        {
+          id: 'item-seller-1',
+          orderId: 'ord-102',
+          order: { orderNumber: 'ORD-102' },
+          productName: 'Third Party Kurti',
+          sku: 'KURTI-TP-01',
+          quantity: 1,
+          unitPrice: new Decimal(1500.0),
+          totalAmount: new Decimal(1500.0),
+          status: 'DELIVERED',
+          createdAt: new Date(),
+          seller: {
+            displayName: 'FashionHub',
+            user: { role: { name: 'SELLER' } },
+          },
+        },
+      ]);
+
+      const res = await service.getAdminSalesReport({});
+      expect(res.success).toBe(true);
+      expect(res.data.summary.totalOrders).toBe(1);
+      expect(res.data.summary.totalUnitsSold).toBe(2);
+      expect(res.data.summary.totalAdminRevenue).toBe(8000.0);
+      expect(res.data.summary.commissionRate).toBe(0.0);
+      expect(res.data.items).toHaveLength(1);
+      expect(res.data.items[0].productName).toBe('Admin Formal Suit');
+    });
+  });
+
+  describe('requestReportExport & getReportMetadataById (SRS FR-14)', () => {
+    const adminUserId = 'usr-admin-1';
+    const sellerUserId = 'usr-seller-1';
+
+    it('should create report export metadata record with COMPLETED status and fileKey', async () => {
+      mockPrisma.reportMetadata.create.mockImplementation(({ data }: any) =>
+        Promise.resolve({ id: 'rep-meta-1', ...data }),
+      );
+
+      const res = await service.requestReportExport(adminUserId, {
+        reportName: 'Q3 Financial Audit',
+        reportType: 'REVENUE',
+        reportFormat: 'CSV',
+        periodFrom: '2026-07-01T00:00:00.000Z',
+        periodTo: '2026-09-30T23:59:59.000Z',
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.data.id).toBe('rep-meta-1');
+      expect(res.data.status).toBe('COMPLETED');
+      expect(res.data.fileKey).toContain('exports/reports/');
+      expect(mockPrisma.reportMetadata.create).toHaveBeenCalled();
+    });
+
+    it('should allow Super Admin or report owner to view report metadata', async () => {
+      const mockReport = {
+        id: 'rep-meta-1',
+        reportName: 'Sales Summary',
+        requestedById: sellerUserId,
+        status: 'COMPLETED',
+        fileKey: 'exports/reports/123.csv',
+      };
+      mockPrisma.reportMetadata.findUnique.mockResolvedValue(mockReport);
+
+      // 1. Super Admin access
+      const adminRes = await service.getReportMetadataById(
+        adminUserId,
+        'SUPER_ADMIN',
+        'rep-meta-1',
+      );
+      expect(adminRes.success).toBe(true);
+      expect(adminRes.data.id).toBe('rep-meta-1');
+
+      // 2. Owner access
+      const ownerRes = await service.getReportMetadataById(
+        sellerUserId,
+        'SELLER',
+        'rep-meta-1',
+      );
+      expect(ownerRes.success).toBe(true);
+      expect(ownerRes.data.id).toBe('rep-meta-1');
+    });
+
+    it('should reject unauthorized users or nonexistent reports', async () => {
+      mockPrisma.reportMetadata.findUnique.mockResolvedValue(null);
+      await expect(
+        service.getReportMetadataById(adminUserId, 'SUPER_ADMIN', 'nonexistent'),
+      ).rejects.toThrow(NotFoundException);
+
+      mockPrisma.reportMetadata.findUnique.mockResolvedValue({
+        id: 'rep-meta-secret',
+        requestedById: 'other-user',
+      });
+      await expect(
+        service.getReportMetadataById('unauth-user', 'CUSTOMER', 'rep-meta-secret'),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 });

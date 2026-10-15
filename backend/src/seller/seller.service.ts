@@ -60,7 +60,7 @@ export class SellerService {
           businessDescription: dto.businessDescription?.trim() || null,
           contactEmail: dto.contactEmail.trim().toLowerCase(),
           contactMobile: dto.contactMobile?.trim() || null,
-          status: SellerStatus.PENDING,
+          status: SellerStatus.PENDING_APPROVAL,
         },
       });
 
@@ -566,7 +566,7 @@ export class SellerService {
     const newVerification = await this.prisma.$transaction(async (tx) => {
       await tx.sellerProfile.update({
         where: { id: profile.id },
-        data: { status: SellerStatus.PENDING },
+        data: { status: SellerStatus.PENDING_APPROVAL },
       });
 
       return tx.sellerVerification.create({

@@ -252,7 +252,50 @@ async function main() {
   });
   console.log('✅ Seller profiles and operational addresses configured.');
 
-  // 5. Category Hierarchy & Commissions
+  // 5. Size Sets (SRS FR-3, BR-3)
+  const sizeSetApparel = await prisma.sizeSet.upsert({
+    where: { code: 'APPAREL_STD' },
+    update: {},
+    create: {
+      name: 'Standard Apparel Sizes',
+      code: 'APPAREL_STD',
+      description: 'Standard unisex clothing size curve (XS to XXL)',
+      isActive: true,
+      values: {
+        create: [
+          { value: 'XS', displayName: 'Extra Small', sortOrder: 1 },
+          { value: 'S', displayName: 'Small', sortOrder: 2 },
+          { value: 'M', displayName: 'Medium', sortOrder: 3 },
+          { value: 'L', displayName: 'Large', sortOrder: 4 },
+          { value: 'XL', displayName: 'Extra Large', sortOrder: 5 },
+          { value: 'XXL', displayName: 'Double Extra Large', sortOrder: 6 },
+        ],
+      },
+    },
+  });
+
+  const sizeSetFootwear = await prisma.sizeSet.upsert({
+    where: { code: 'FOOTWEAR_STD' },
+    update: {},
+    create: {
+      name: 'Footwear Sizes',
+      code: 'FOOTWEAR_STD',
+      description: 'Standard Indian/UK shoe size curve',
+      isActive: true,
+      values: {
+        create: [
+          { value: 'UK 6', displayName: 'Size 6 (UK)', sortOrder: 1 },
+          { value: 'UK 7', displayName: 'Size 7 (UK)', sortOrder: 2 },
+          { value: 'UK 8', displayName: 'Size 8 (UK)', sortOrder: 3 },
+          { value: 'UK 9', displayName: 'Size 9 (UK)', sortOrder: 4 },
+          { value: 'UK 10', displayName: 'Size 10 (UK)', sortOrder: 5 },
+        ],
+      },
+    },
+  });
+  console.log('✅ Size sets and values configured.');
+
+  // 6. Category Hierarchy & Commissions
   const catElectronics = await prisma.category.upsert({
     where: { slug: 'electronics' },
     update: {},
@@ -329,11 +372,12 @@ async function main() {
 
   const catFashion = await prisma.category.upsert({
     where: { slug: 'fashion-apparel' },
-    update: {},
+    update: { sizeSetId: sizeSetApparel.id },
     create: {
       name: 'Fashion & Apparel',
       slug: 'fashion-apparel',
       description: 'Men and women clothing, footwear, and accessories',
+      sizeSetId: sizeSetApparel.id,
       isActive: true,
       createdById: adminUser.id,
     },
@@ -353,12 +397,13 @@ async function main() {
 
   const catMensWear = await prisma.category.upsert({
     where: { slug: 'mens-clothing' },
-    update: {},
+    update: { sizeSetId: sizeSetApparel.id },
     create: {
       name: "Men's Clothing",
       slug: 'mens-clothing',
       description: 'Shirts, t-shirts, jeans, and formal wear',
       parentCategoryId: catFashion.id,
+      sizeSetId: sizeSetApparel.id,
       isActive: true,
       createdById: adminUser.id,
     },
@@ -375,9 +420,9 @@ async function main() {
     ],
     skipDuplicates: true,
   });
-  console.log('✅ Category tree and commission structures seeded.');
+  console.log('✅ Category tree, SizeSet bindings, and commission structures seeded.');
 
-  // 6. Seller-Category Permissions
+  // 7. Seller-Category Permissions
   const sellerCategories = [
     { sellerId: sellerProfile1.id, categoryId: catElectronics.id },
     { sellerId: sellerProfile1.id, categoryId: catAudio.id },
@@ -404,131 +449,211 @@ async function main() {
   }
   console.log('✅ Seller category permissions granted.');
 
-  // 7. Products & Inventory
-  const productsData = [
+  // 8. Products, Variants & Inventory
+  const apparelSizeMap: Record<string, string> = {};
+  const apparelValues = await prisma.sizeSetValue.findMany({
+    where: { sizeSetId: sizeSetApparel.id },
+  });
+  for (const val of apparelValues) {
+    apparelSizeMap[val.value] = val.id;
+  }
+
+  const catalog = [
     {
       sellerId: sellerProfile1.id,
       categoryId: catAudio.id,
       name: 'Apex ANC Wireless Noise-Canceling Headphones',
-      sku: 'TECH-ANC-001',
-      description: 'Industry-leading Active Noise Cancellation with 40-hour battery life, high-res audio drivers, and ultra-comfortable memory foam earcups.',
+      description: 'Industry-leading Active Noise Cancellation with 40-hour battery life and memory foam earcups.',
       price: new Decimal(4999.0),
-      stock: 65,
-      lowStockThreshold: 15,
       specs: [
         { name: 'Bluetooth Version', value: '5.3' },
         { name: 'Battery Life', value: '40 Hours' },
         { name: 'Driver Size', value: '40mm High-Res' },
-        { name: 'Fast Charging', value: '10 min for 5 hours' },
       ],
       images: [
         'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800',
         'https://images.unsplash.com/photo-1484704849700-f032a568e944?w=800',
+      ],
+      variants: [
+        {
+          sku: 'TECH-ANC-BLK',
+          size: 'Free Size',
+          color: 'Matte Black',
+          stock: 35,
+          lowStockThreshold: 10,
+          priceOverride: null,
+          sizeSetValueId: null,
+        },
+        {
+          sku: 'TECH-ANC-SLV',
+          size: 'Free Size',
+          color: 'Silver Mist',
+          stock: 30,
+          lowStockThreshold: 10,
+          priceOverride: new Decimal(5299.0),
+          sizeSetValueId: null,
+        },
       ],
     },
     {
       sellerId: sellerProfile1.id,
       categoryId: catLaptops.id,
       name: 'Zenith Pro 15.6" Ultra-Slim Gaming Laptop',
-      sku: 'TECH-LPT-002',
-      description: 'Next-generation 14-core processor, RTX 4060 graphics, 16GB DDR5 RAM, and 1TB NVMe Gen4 SSD for effortless productivity and gaming.',
+      description: 'Intel Core i7 14th Gen, RTX 4060 8GB, 16GB DDR5 RAM, and 1TB NVMe Gen4 SSD.',
       price: new Decimal(74999.0),
-      stock: 18,
-      lowStockThreshold: 5,
       specs: [
         { name: 'Processor', value: 'Intel Core i7 14th Gen' },
         { name: 'Graphics', value: 'NVIDIA RTX 4060 8GB GDDR6' },
         { name: 'RAM', value: '16GB DDR5 5600MHz' },
-        { name: 'Display', value: '15.6" QHD 165Hz IPS' },
       ],
       images: [
         'https://images.unsplash.com/photo-1603302576837-37561b2e2302?w=800',
+      ],
+      variants: [
+        {
+          sku: 'TECH-LPT-DKT',
+          size: '15.6-inch',
+          color: 'Dark Titanium',
+          stock: 18,
+          lowStockThreshold: 5,
+          priceOverride: null,
+          sizeSetValueId: null,
+        },
       ],
     },
     {
       sellerId: sellerProfile1.id,
       categoryId: catAudio.id,
       name: 'NovaPulse True Wireless Earbuds with Spatial Audio',
-      sku: 'TECH-TWS-003',
-      description: 'Compact IPX5 water-resistant earbuds featuring 32-hour playback, crystal clear ENC microphone, and immersive spatial audio.',
+      description: 'Compact IPX5 earbuds featuring 32-hour playback and spatial audio drivers.',
       price: new Decimal(1999.0),
-      stock: 120,
-      lowStockThreshold: 20,
       specs: [
         { name: 'Battery', value: '32 Hours Total' },
         { name: 'Water Resistance', value: 'IPX5' },
-        { name: 'Latency', value: '45ms Gaming Mode' },
       ],
       images: [
         'https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=800',
+      ],
+      variants: [
+        {
+          sku: 'TECH-TWS-WHT',
+          size: 'Free Size',
+          color: 'Glossy White',
+          stock: 60,
+          lowStockThreshold: 15,
+          priceOverride: null,
+          sizeSetValueId: null,
+        },
+        {
+          sku: 'TECH-TWS-BLK',
+          size: 'Free Size',
+          color: 'Midnight Black',
+          stock: 60,
+          lowStockThreshold: 15,
+          priceOverride: null,
+          sizeSetValueId: null,
+        },
       ],
     },
     {
       sellerId: sellerProfile2.id,
       categoryId: catMensWear.id,
-      name: 'Classic Oxford Pure Cotton Slim-Fit Shirt (Navy Blue)',
-      sku: 'FASH-OXF-001',
-      description: 'Tailored from 100% breathable organic Oxford cotton. Perfect for business meetings and casual evening gatherings.',
+      name: 'Classic Oxford Pure Cotton Slim-Fit Shirt',
+      description: '100% breathable organic Oxford cotton. Perfect for business and smart-casual wear.',
       price: new Decimal(1499.0),
-      stock: 90,
-      lowStockThreshold: 20,
       specs: [
         { name: 'Material', value: '100% Organic Cotton' },
         { name: 'Fit', value: 'Slim Fit' },
-        { name: 'Pattern', value: 'Solid Oxford Weave' },
       ],
       images: [
         'https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=800',
+      ],
+      variants: [
+        {
+          sku: 'FASH-OXF-NVY-M',
+          size: 'M',
+          color: 'Navy Blue',
+          stock: 35,
+          lowStockThreshold: 10,
+          priceOverride: null,
+          sizeSetValueId: apparelSizeMap['M'] || null,
+        },
+        {
+          sku: 'FASH-OXF-NVY-L',
+          size: 'L',
+          color: 'Navy Blue',
+          stock: 30,
+          lowStockThreshold: 10,
+          priceOverride: null,
+          sizeSetValueId: apparelSizeMap['L'] || null,
+        },
+        {
+          sku: 'FASH-OXF-NVY-XL',
+          size: 'XL',
+          color: 'Navy Blue',
+          stock: 25,
+          lowStockThreshold: 10,
+          priceOverride: null,
+          sizeSetValueId: apparelSizeMap['XL'] || null,
+        },
       ],
     },
     {
       sellerId: sellerProfile2.id,
       categoryId: catMensWear.id,
       name: 'Raw Selvedge Denim Heritage Jacket',
-      sku: 'FASH-JCK-002',
-      description: 'Heavyweight 14oz Japanese selvedge denim jacket with custom brass hardware and double-needle contrast stitching.',
+      description: 'Heavyweight 14oz Japanese selvedge denim jacket with antiqued brass buttons.',
       price: new Decimal(3499.0),
-      stock: 8, // Low stock demo item
-      lowStockThreshold: 10,
       specs: [
         { name: 'Weight', value: '14oz Selvedge Denim' },
         { name: 'Fit', value: 'Regular Vintage Fit' },
-        { name: 'Hardware', value: 'Antiqued Brass Buttons' },
       ],
       images: [
         'https://images.unsplash.com/photo-1576995853123-5a10305d93c0?w=800',
       ],
+      variants: [
+        {
+          sku: 'FASH-JCK-IND-M',
+          size: 'M',
+          color: 'Indigo',
+          stock: 4, // Demonstrates low stock alert
+          lowStockThreshold: 10,
+          priceOverride: null,
+          sizeSetValueId: apparelSizeMap['M'] || null,
+        },
+        {
+          sku: 'FASH-JCK-IND-L',
+          size: 'L',
+          color: 'Indigo',
+          stock: 4, // Demonstrates low stock alert
+          lowStockThreshold: 10,
+          priceOverride: null,
+          sizeSetValueId: apparelSizeMap['L'] || null,
+        },
+      ],
     },
   ];
 
-  for (const p of productsData) {
-    const product = await prisma.product.upsert({
-      where: { sku: p.sku },
-      update: {},
-      create: {
-        sellerId: p.sellerId,
-        categoryId: p.categoryId,
-        name: p.name,
-        sku: p.sku,
-        description: p.description,
-        price: p.price,
-        status: ProductStatus.ACTIVE,
-      },
+  for (const p of catalog) {
+    let product = await prisma.product.findFirst({
+      where: { name: p.name, sellerId: p.sellerId },
     });
 
-    // Product Images
-    for (let i = 0; i < p.images.length; i++) {
-      await prisma.productImage.create({
+    if (!product) {
+      product = await prisma.product.create({
         data: {
-          productId: product.id,
-          imageUrl: p.images[i],
-          isPrimary: i === 0,
-          displayOrder: i + 1,
+          sellerId: p.sellerId,
+          categoryId: p.categoryId,
+          name: p.name,
+          description: p.description,
+          price: p.price,
+          status: ProductStatus.ACTIVE,
         },
       });
     }
 
-    // Product Specifications
+    // Specifications
+    await prisma.productSpecification.deleteMany({ where: { productId: product.id } });
     for (let i = 0; i < p.specs.length; i++) {
       await prisma.productSpecification.create({
         data: {
@@ -540,35 +665,78 @@ async function main() {
       });
     }
 
-    // Inventory
-    const inventory = await prisma.inventory.upsert({
-      where: { productId: product.id },
-      update: {
-        availableQuantity: p.stock,
-        lowStockThreshold: p.lowStockThreshold,
-      },
-      create: {
-        productId: product.id,
-        availableQuantity: p.stock,
-        reservedQuantity: 0,
-        lowStockThreshold: p.lowStockThreshold,
-      },
-    });
+    // Images
+    await prisma.productImage.deleteMany({ where: { productId: product.id } });
+    for (let i = 0; i < p.images.length; i++) {
+      await prisma.productImage.create({
+        data: {
+          productId: product.id,
+          imageUrl: p.images[i],
+          isPrimary: i === 0,
+          displayOrder: i + 1,
+        },
+      });
+    }
 
-    // Inventory History
-    await prisma.inventoryHistory.create({
-      data: {
-        inventoryId: inventory.id,
-        productId: product.id,
-        changeType: StockChangeType.STOCK_ADDED,
-        quantityChange: p.stock,
-        previousQuantity: 0,
-        newQuantity: p.stock,
-        reason: 'Initial database seed stock allocation',
-      },
-    });
+    // Variants and Variant Inventory
+    for (const v of p.variants) {
+      const variant = await prisma.productVariant.upsert({
+        where: { sku: v.sku },
+        update: {
+          size: v.size,
+          color: v.color,
+          stockQuantity: v.stock,
+          lowStockThreshold: v.lowStockThreshold,
+          priceOverride: v.priceOverride,
+          sizeSetValueId: v.sizeSetValueId,
+        },
+        create: {
+          productId: product.id,
+          sku: v.sku,
+          size: v.size,
+          color: v.color,
+          stockQuantity: v.stock,
+          lowStockThreshold: v.lowStockThreshold,
+          priceOverride: v.priceOverride,
+          sizeSetValueId: v.sizeSetValueId,
+          isActive: true,
+        },
+      });
+
+      const inventory = await prisma.inventory.upsert({
+        where: { variantId: variant.id },
+        update: {
+          availableQuantity: v.stock,
+          lowStockThreshold: v.lowStockThreshold,
+        },
+        create: {
+          variantId: variant.id,
+          availableQuantity: v.stock,
+          reservedQuantity: 0,
+          lowStockThreshold: v.lowStockThreshold,
+        },
+      });
+
+      const existingHistory = await prisma.inventoryHistory.findFirst({
+        where: { inventoryId: inventory.id, variantId: variant.id },
+      });
+
+      if (!existingHistory) {
+        await prisma.inventoryHistory.create({
+          data: {
+            inventoryId: inventory.id,
+            variantId: variant.id,
+            changeType: StockChangeType.STOCK_ADDED,
+            quantityChange: v.stock,
+            previousQuantity: 0,
+            newQuantity: v.stock,
+            reason: 'Initial database seed stock allocation',
+          },
+        });
+      }
+    }
   }
-  console.log('✅ Products, images, specifications, and inventory records seeded.');
+  console.log('✅ Products, variants, specifications, and variant inventory records seeded.');
 
   // 8. Notification Templates
   const templates = [

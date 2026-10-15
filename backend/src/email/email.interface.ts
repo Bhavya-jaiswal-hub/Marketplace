@@ -10,3 +10,9 @@ export interface EmailDeliveryResult {
   messageId?: string;
   error?: string;
 }
+
+export interface IEmailService {
+  sendEmail(options: SendEmailOptions): Promise<EmailDeliveryResult>;
+  sendVerificationEmail(to: string, token: string, fullName: string): Promise<EmailDeliveryResult>;
+  sendPasswordResetEmail(to: string, token: string, fullName: string): Promise<EmailDeliveryResult>;
+}

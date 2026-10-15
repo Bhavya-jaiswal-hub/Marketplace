@@ -80,16 +80,17 @@ export class PaymentService {
 
     // Check expiration
     if (new Date() > paymentPending.expiresAt) {
-      // Mark as expired and release reserved inventory
+      // Mark as failed/expired and release reserved inventory
       await this.prisma.paymentPending.update({
         where: { id: paymentPending.id },
-        data: { status: PaymentStatus.EXPIRED },
+        data: { status: PaymentStatus.FAILED },
       });
 
       // Release reserved inventory in batch
       await this.inventoryService.releaseReservation({
         reservationId: paymentPending.order.orderNumber,
         items: paymentPending.order.orderItems.map((item) => ({
+          variantId: item.variantId,
           productId: item.productId,
           quantity: item.quantity,
         })),
@@ -101,10 +102,11 @@ export class PaymentService {
     }
 
     // 3. Authoritative confirmation workflow
-    // Confirm stock reservations in batch
+    // Confirm stock reservations in batch using variantId
     await this.inventoryService.confirmReservation({
       reservationId: paymentPending.order.orderNumber,
       items: paymentPending.order.orderItems.map((item) => ({
+        variantId: item.variantId,
         productId: item.productId,
         quantity: item.quantity,
       })),
@@ -131,27 +133,27 @@ export class PaymentService {
       },
     });
 
-    // Update Order to CONFIRMED and PAID
+    // Update Order to PLACED and PAID
     await this.prisma.order.update({
       where: { id: paymentPending.orderId },
       data: {
-        orderStatus: OrderStatus.CONFIRMED,
+        orderStatus: OrderStatus.PLACED,
         paymentStatus: PaymentStatus.PAID,
       },
     });
 
-    // Update all OrderItems to CONFIRMED
+    // Update all OrderItems to PLACED
     for (const item of paymentPending.order.orderItems) {
       await this.prisma.orderItem.update({
         where: { id: item.id },
-        data: { status: OrderItemStatus.CONFIRMED },
+        data: { status: OrderItemStatus.PLACED },
       });
 
       await this.prisma.orderItemHistory.create({
         data: {
           orderItemId: item.id,
           previousStatus: item.status,
-          newStatus: OrderItemStatus.CONFIRMED,
+          newStatus: OrderItemStatus.PLACED,
           eventType: 'Status Changed',
           reason: `Payment confirmed via Razorpay (Payment ID: ${dto.razorpayPaymentId})`,
           changedBy: userId,
@@ -229,11 +231,11 @@ export class PaymentService {
           });
 
           if (paymentPending && paymentPending.status !== PaymentStatus.PAID) {
-            // Confirm stock reservations in batch
+            // Confirm stock reservations in batch using variantId
             await this.inventoryService.confirmReservation({
               reservationId: paymentPending.order.orderNumber,
               items: paymentPending.order.orderItems.map((item) => ({
-                productId: item.productId,
+                variantId: item.variantId,
                 quantity: item.quantity,
               })),
             });
@@ -261,7 +263,7 @@ export class PaymentService {
             await this.prisma.order.update({
               where: { id: paymentPending.orderId },
               data: {
-                orderStatus: OrderStatus.CONFIRMED,
+                orderStatus: OrderStatus.PLACED,
                 paymentStatus: PaymentStatus.PAID,
               },
             });
@@ -269,7 +271,7 @@ export class PaymentService {
             for (const item of paymentPending.order.orderItems) {
               await this.prisma.orderItem.update({
                 where: { id: item.id },
-                data: { status: OrderItemStatus.CONFIRMED },
+                data: { status: OrderItemStatus.PLACED },
               });
             }
           }
@@ -293,11 +295,11 @@ export class PaymentService {
             data: { status: PaymentStatus.FAILED },
           });
 
-          // Release reservations in batch
+          // Release reservations in batch using variantId
           await this.inventoryService.releaseReservation({
             reservationId: paymentPending.order.orderNumber,
             items: paymentPending.order.orderItems.map((item) => ({
-              productId: item.productId,
+              variantId: item.variantId,
               quantity: item.quantity,
             })),
           });

@@ -35,8 +35,9 @@ describe('PaymentService', () => {
         {
           id: 'item-1',
           productId: 'prod-1',
+          variantId: 'var-1',
           quantity: 2,
-          status: OrderItemStatus.PENDING,
+          status: OrderItemStatus.PLACED,
         },
       ],
     },
@@ -104,7 +105,7 @@ describe('PaymentService', () => {
       expect(res.data.status).toBe('PAID');
       expect(inventoryService.confirmReservation).toHaveBeenCalledWith({
         reservationId: 'ORD-123',
-        items: [{ productId: 'prod-1', quantity: 2 }],
+        items: [{ productId: 'prod-1', variantId: 'var-1', quantity: 2 }],
       });
       expect(prisma.paymentPending.update).toHaveBeenCalledWith({
         where: { id: 'pay-1' },
@@ -113,7 +114,7 @@ describe('PaymentService', () => {
       expect(prisma.order.update).toHaveBeenCalledWith({
         where: { id: 'ord-1' },
         data: {
-          orderStatus: OrderStatus.CONFIRMED,
+          orderStatus: OrderStatus.PLACED,
           paymentStatus: PaymentStatus.PAID,
         },
       });
@@ -179,7 +180,7 @@ describe('PaymentService', () => {
 
       expect(inventoryService.releaseReservation).toHaveBeenCalledWith({
         reservationId: 'ORD-123',
-        items: [{ productId: 'prod-1', quantity: 2 }],
+        items: [{ productId: 'prod-1', variantId: 'var-1', quantity: 2 }],
       });
     });
   });
@@ -211,7 +212,7 @@ describe('PaymentService', () => {
       expect(res.received).toBe(true);
       expect(inventoryService.confirmReservation).toHaveBeenCalledWith({
         reservationId: 'ORD-123',
-        items: [{ productId: 'prod-1', quantity: 2 }],
+        items: [{ variantId: 'var-1', quantity: 2 }],
       });
       expect(prisma.paymentPending.update).toHaveBeenCalledWith({
         where: { id: 'pay-1' },

@@ -26,6 +26,10 @@ import {
   RejectCategoryRequestDto,
   RevokeCategoryDto,
   UpdateCategoryDto,
+  CreateSizeSetDto,
+  UpdateSizeSetDto,
+  AddSizeSetValueDto,
+  SizeSetQueryDto,
 } from './dto';
 
 @Controller()
@@ -48,12 +52,14 @@ export class CategoryController {
 
   @Get('sellers/me/categories/available')
   @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
   async getAvailableCategories(@Req() req: AuthenticatedRequest): Promise<any> {
     return this.categoryService.getAvailableCategories(req.user.sub);
   }
 
   @Post('sellers/me/category-requests')
   @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
   @HttpCode(HttpStatus.CREATED)
   async requestCategories(
     @Req() req: AuthenticatedRequest,
@@ -64,12 +70,14 @@ export class CategoryController {
 
   @Get('sellers/me/category-requests')
   @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
   async getOwnCategoryRequests(@Req() req: AuthenticatedRequest): Promise<any> {
     return this.categoryService.getOwnCategoryRequests(req.user.sub);
   }
 
   @Get('sellers/me/categories')
   @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SELLER')
   async getOwnApprovedCategories(@Req() req: AuthenticatedRequest): Promise<any> {
     return this.categoryService.getOwnApprovedCategories(req.user.sub);
   }
@@ -196,5 +204,55 @@ export class CategoryController {
     @Body() dto: AssignCategoryDto,
   ): Promise<any> {
     return this.categoryService.assignCategoryToSeller(req.user.sub, sellerId, dto);
+  }
+
+  // ================= SUPER ADMIN SIZE SET MANAGEMENT =================
+
+  @Post('admin/size-sets')
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SUPER_ADMIN', 'ADMIN')
+  @HttpCode(HttpStatus.CREATED)
+  async createSizeSet(
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: CreateSizeSetDto,
+  ): Promise<any> {
+    return this.categoryService.createSizeSet(req.user.sub, dto);
+  }
+
+  @Get('admin/size-sets')
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SUPER_ADMIN', 'ADMIN')
+  async listSizeSets(@Query() query: SizeSetQueryDto): Promise<any> {
+    return this.categoryService.listSizeSets(query);
+  }
+
+  @Get('admin/size-sets/:id')
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SUPER_ADMIN', 'ADMIN')
+  async getSizeSetById(@Param('id') id: string): Promise<any> {
+    return this.categoryService.getSizeSetById(id);
+  }
+
+  @Patch('admin/size-sets/:id')
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SUPER_ADMIN', 'ADMIN')
+  async updateSizeSet(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() dto: UpdateSizeSetDto,
+  ): Promise<any> {
+    return this.categoryService.updateSizeSet(req.user.sub, id, dto);
+  }
+
+  @Post('admin/size-sets/:id/values')
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles('SUPER_ADMIN', 'ADMIN')
+  @HttpCode(HttpStatus.CREATED)
+  async addSizeSetValue(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() dto: AddSizeSetValueDto,
+  ): Promise<any> {
+    return this.categoryService.addSizeSetValue(req.user.sub, id, dto);
   }
 }

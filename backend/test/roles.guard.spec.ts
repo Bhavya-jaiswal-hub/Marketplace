@@ -19,9 +19,16 @@ describe('RolesGuard', () => {
     guard = new RolesGuard(reflector);
   });
 
-  it('allows access when no roles are specified', () => {
+  it('denies access when no roles are specified on guard-protected endpoint', () => {
     jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(null);
     const context = createMockContext({ role: 'CUSTOMER' });
+
+    expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
+  });
+
+  it('allows access when user has the required role via roleName', () => {
+    jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(['SELLER']);
+    const context = createMockContext({ role: undefined, roleName: 'SELLER' } as any);
 
     expect(guard.canActivate(context)).toBe(true);
   });

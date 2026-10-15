@@ -1,6 +1,9 @@
 import {
   Controller,
   Get,
+  Post,
+  Body,
+  Param,
   Query,
   UseGuards,
   Req,
@@ -10,12 +13,13 @@ import {
   ReportFilterDto,
   AuditLogQueryDto,
   ActivityLogQueryDto,
+  RequestReportExportDto,
 } from './dto';
 import { AuthGuard, AuthenticatedRequest } from '../auth/auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 
-@Controller('api/v1')
+@Controller()
 @UseGuards(AuthGuard, RolesGuard)
 export class ReportingController {
   constructor(private readonly reportingService: ReportingService) {}
@@ -26,6 +30,12 @@ export class ReportingController {
   @Roles('SUPER_ADMIN')
   async getSalesReport(@Query() query: ReportFilterDto) {
     return this.reportingService.getSalesReport(query);
+  }
+
+  @Get('admin/reports/admin-sales')
+  @Roles('SUPER_ADMIN')
+  async getAdminSalesReport(@Query() query: ReportFilterDto) {
+    return this.reportingService.getAdminSalesReport(query);
   }
 
   @Get('admin/reports/revenue')
@@ -80,6 +90,28 @@ export class ReportingController {
   @Roles('SUPER_ADMIN')
   async getActivityLogs(@Query() query: ActivityLogQueryDto) {
     return this.reportingService.getActivityLogs(query);
+  }
+
+  @Post('admin/reports/export')
+  @Roles('SUPER_ADMIN')
+  async exportReport(
+    @Req() req: any,
+    @Body() dto: RequestReportExportDto,
+  ) {
+    return this.reportingService.requestReportExport(req.user.sub, dto);
+  }
+
+  @Get('reports/:reportId')
+  @Roles('CUSTOMER', 'SELLER', 'SUPER_ADMIN')
+  async getReportById(
+    @Req() req: any,
+    @Param('reportId') reportId: string,
+  ) {
+    return this.reportingService.getReportMetadataById(
+      req.user.sub,
+      req.user.roleName,
+      reportId,
+    );
   }
 
   // ================= SELLER ANALYTICS =================

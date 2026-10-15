@@ -12,6 +12,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard, AuthenticatedRequest } from '../auth/auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
 import { CustomerService } from './customer.service';
 import {
   CreateCustomerAddressDto,
@@ -20,7 +22,8 @@ import {
 } from './dto';
 
 @Controller('customers')
-@UseGuards(AuthGuard)
+@UseGuards(AuthGuard, RolesGuard)
+@Roles('CUSTOMER')
 export class CustomerController {
   constructor(private readonly customerService: CustomerService) {}
 
