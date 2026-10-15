@@ -42,6 +42,9 @@ export class CreateNotificationDto {
   @IsString()
   @IsOptional()
   emailRecipient?: string;
+
+  @IsOptional()
+  templateData?: Record<string, any>;
 }
 
 export class CreateNotificationTemplateDto {

@@ -40,6 +40,7 @@ describe('Notification, Reporting, and Administration End-to-End Integration Flo
     verificationDocuments: new Map(),
     auditLogs: new Map(),
     activityLogs: new Map(),
+    reportMetadatas: new Map(),
   };
 
   beforeEach(async () => {
@@ -131,7 +132,10 @@ describe('Notification, Reporting, and Administration End-to-End Integration Flo
           }
           return list.map((item: any) => {
             const res = { ...item };
-            if (include?.seller) res.seller = db.sellerProfiles.get(item.sellerId);
+            if (include?.seller) {
+              const s = db.sellerProfiles.get(item.sellerId);
+              res.seller = s ? { ...s, user: db.users.get(s.userId) } : null;
+            }
             if (include?.product) {
               const prod = db.products.get(item.productId);
               res.product = {
@@ -222,6 +226,18 @@ describe('Notification, Reporting, and Administration End-to-End Integration Flo
           }
           return db.notificationTemplates.get(where.id) || null;
         }),
+        findFirst: jest.fn(async ({ where }: any) => {
+          for (const t of db.notificationTemplates.values()) {
+            if (
+              t.notificationType === where?.notificationType &&
+              (!where?.channel || t.channel === where?.channel) &&
+              (!where?.status || t.status === where?.status)
+            ) {
+              return t;
+            }
+          }
+          return null;
+        }),
         findMany: jest.fn(async () => Array.from(db.notificationTemplates.values())),
         count: jest.fn(async () => db.notificationTemplates.size),
         update: jest.fn(async ({ where, data }: any) => {
@@ -261,6 +277,22 @@ describe('Notification, Reporting, and Administration End-to-End Integration Flo
         ),
         count: jest.fn(async () => db.activityLogs.size),
       },
+      reportMetadata: {
+        create: jest.fn(async ({ data }: any) => {
+          const id = `rep-${Date.now()}-${Math.random()}`;
+          const rec = { id, ...data, createdAt: new Date(), updatedAt: new Date() };
+          db.reportMetadatas.set(id, rec);
+          return rec;
+        }),
+        findUnique: jest.fn(async ({ where }: any) => {
+          const rep = db.reportMetadatas.get(where.id);
+          if (!rep) return null;
+          return {
+            ...rep,
+            requestedBy: db.users.get(rep.requestedById),
+          };
+        }),
+      },
     };
 
     prismaService = mockPrisma;
@@ -276,9 +308,24 @@ describe('Notification, Reporting, and Administration End-to-End Integration Flo
 
   it('should execute full end-to-end notification lifecycle, template management, activity logging, and reporting', async () => {
     // 1. Setup Super Admin, Customer, and Seller Users
-    const adminUser = { id: 'usr-admin-1', fullName: 'Super Admin', email: 'admin@marketplace.com' };
-    const customerUser = { id: 'usr-cust-1', fullName: 'Rohan Sharma', email: 'rohan@example.com' };
-    const sellerUser = { id: 'usr-seller-1', fullName: 'Ananya Roy', email: 'ananya@audiohub.com' };
+    const adminUser = {
+      id: 'usr-admin-1',
+      fullName: 'Super Admin',
+      email: 'admin@marketplace.com',
+      role: { name: 'SUPER_ADMIN' },
+    };
+    const customerUser = {
+      id: 'usr-cust-1',
+      fullName: 'Rohan Sharma',
+      email: 'rohan@example.com',
+      role: { name: 'CUSTOMER' },
+    };
+    const sellerUser = {
+      id: 'usr-seller-1',
+      fullName: 'Ananya Roy',
+      email: 'ananya@audiohub.com',
+      role: { name: 'SELLER' },
+    };
 
     db.users.set(adminUser.id, adminUser);
     db.users.set(customerUser.id, customerUser);
@@ -460,5 +507,120 @@ describe('Notification, Reporting, and Administration End-to-End Integration Flo
     expect(sellerAnalytics.data.summary.totalGrossSales).toBe(5000.0);
     expect(sellerAnalytics.data.summary.totalSellerEarnings).toBe(4500.0);
     expect(sellerAnalytics.data.topPerformingProducts[0].name).toBe('Wireless Noise-Canceling Headphones');
+
+    // ================= STEP 7: MASTER LIFECYCLE NOTIFICATION EVENTS =================
+    // 7a. Order Placed notification (customer + seller)
+    await notificationService.notifyOrderPlaced(
+      customerUser.id,
+      order1.id,
+      order1.orderNumber,
+      [sellerUser.id],
+    );
+    const orderNotifs = Array.from(db.notifications.values()).filter(
+      (n: any) => n.referenceId === order1.id,
+    );
+    expect(orderNotifs.length).toBeGreaterThanOrEqual(1);
+
+    // 7b. Order Shipped notification
+    await notificationService.notifyOrderShipped(
+      customerUser.id,
+      order1.orderNumber,
+      'BlueDart Express',
+      'BD-99887766',
+    );
+    const shippedNotifs: any[] = Array.from(db.notifications.values()).filter(
+      (n: any) => n.type === 'ORDER_SHIPPED',
+    );
+    expect(shippedNotifs).toHaveLength(1);
+    expect(shippedNotifs[0].message).toContain('BlueDart Express');
+
+    // 7c. Dispute Raised notification (Super Admin + Seller)
+    await notificationService.notifyDisputeRaised(
+      adminUser.id,
+      sellerUser.id,
+      order1.orderNumber,
+      orderItem1.id,
+      'Missing accessory in parcel',
+    );
+    const adminDisputeNotifs: any[] = Array.from(db.notifications.values()).filter(
+      (n: any) => n.type === 'DISPUTE_RAISED_ADMIN',
+    );
+    expect(adminDisputeNotifs).toHaveLength(1);
+
+    // 7d. Settlement Completed notification
+    await notificationService.notifySettlementCompleted(
+      sellerUser.id,
+      'SETTLE-2026-W42',
+      4500.0,
+      'HDFC_UTR_889900',
+    );
+    const settleNotifs: any[] = Array.from(db.notifications.values()).filter(
+      (n: any) => n.type === 'SETTLEMENT_COMPLETED',
+    );
+    expect(settleNotifs).toHaveLength(1);
+    expect(settleNotifs[0].message).toContain('HDFC_UTR_889900');
+
+    // ================= STEP 8: SUPER ADMIN DIRECT RETAIL SALES SEGREGATION =================
+    const adminSellerProfile = {
+      id: 'seller-prof-admin',
+      userId: adminUser.id,
+      displayName: 'Marketplace Direct Clothing',
+      sellerType: 'BUSINESS',
+      status: SellerStatus.APPROVED,
+    };
+    db.sellerProfiles.set(adminSellerProfile.id, adminSellerProfile);
+
+    const adminOrderItem = {
+      id: 'item-admin-102',
+      orderId: order1.id,
+      sellerId: adminSellerProfile.id,
+      productId: 'prod-admin-shirt',
+      productName: 'Signature Cotton Shirt',
+      sku: 'COT-SHIRT-01',
+      unitPrice: new Decimal(2000.0),
+      quantity: 2,
+      totalAmount: new Decimal(4000.0),
+      commissionRate: new Decimal(0.0),
+      commissionAmount: new Decimal(0.0),
+      sellerEarnings: new Decimal(4000.0),
+      status: 'DELIVERED',
+      createdAt: new Date(),
+    };
+    db.orderItems.set(adminOrderItem.id, adminOrderItem);
+
+    const adminSalesReport = await reportingService.getAdminSalesReport({});
+    expect(adminSalesReport.success).toBe(true);
+    expect(adminSalesReport.data.summary.commissionRate).toBe(0.0);
+    expect(adminSalesReport.data.summary.totalUnitsSold).toBe(2);
+    expect(adminSalesReport.data.summary.totalAdminRevenue).toBe(4000.0);
+    expect(adminSalesReport.data.items).toHaveLength(1);
+    expect(adminSalesReport.data.items[0].productName).toBe('Signature Cotton Shirt');
+
+    // ================= STEP 9: REPORT EXPORT METADATA WORKFLOW =================
+    const exportRes = await reportingService.requestReportExport(adminUser.id, {
+      reportName: 'Q3 Direct Retail Audit',
+      reportType: 'ADMIN_SALES',
+      reportFormat: 'CSV',
+    });
+    expect(exportRes.success).toBe(true);
+    expect(exportRes.data.status).toBe('COMPLETED');
+    expect(exportRes.data.fileKey).toContain('exports/reports/');
+
+    const fetchedReport = await reportingService.getReportMetadataById(
+      adminUser.id,
+      'SUPER_ADMIN',
+      exportRes.data.id,
+    );
+    expect(fetchedReport.success).toBe(true);
+    expect(fetchedReport.data.reportName).toBe('Q3 Direct Retail Audit');
+
+    // Unauthorized access should be blocked
+    await expect(
+      reportingService.getReportMetadataById(
+        customerUser.id,
+        'CUSTOMER',
+        exportRes.data.id,
+      ),
+    ).rejects.toThrow();
   });
 });

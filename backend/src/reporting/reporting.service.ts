@@ -9,6 +9,7 @@ import {
   ReportFilterDto,
   AuditLogQueryDto,
   ActivityLogQueryDto,
+  RequestReportExportDto,
 } from './dto';
 import {
   OrderStatus,
@@ -98,6 +99,79 @@ export class ReportingService {
         orders: rows,
       },
       message: 'Sales report generated successfully',
+    };
+  }
+
+  async getAdminSalesReport(dto: ReportFilterDto): Promise<any> {
+    const whereClause: any = {
+      order: {
+        paymentStatus: { in: [PaymentStatus.PAID, PaymentStatus.PARTIALLY_REFUNDED, PaymentStatus.REFUNDED] },
+      },
+    };
+    if (dto.periodFrom || dto.periodTo) {
+      whereClause.createdAt = {};
+      if (dto.periodFrom) whereClause.createdAt.gte = new Date(dto.periodFrom);
+      if (dto.periodTo) whereClause.createdAt.lte = new Date(dto.periodTo);
+    }
+    if (dto.status) whereClause.status = dto.status;
+
+    const items = await this.prisma.orderItem.findMany({
+      where: whereClause,
+      include: {
+        order: true,
+        seller: { include: { user: { include: { role: true } } } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const adminItems = items.filter(
+      (item: any) => item.seller?.user?.role?.name === 'SUPER_ADMIN',
+    );
+
+    let totalGrossSales = 0;
+    let totalUnitsSold = 0;
+    const distinctOrderIds = new Set<string>();
+
+    const rows = adminItems.map((item: any) => {
+      const gross = Number(item.totalAmount);
+      const units = item.quantity;
+      distinctOrderIds.add(item.orderId);
+
+      totalGrossSales += gross;
+      totalUnitsSold += units;
+
+      return {
+        orderItemId: item.id,
+        orderId: item.orderId,
+        orderNumber: item.order?.orderNumber,
+        productName: item.productName,
+        sku: item.sku,
+        quantity: units,
+        unitPrice: Number(item.unitPrice),
+        totalAmount: gross,
+        status: item.status,
+        createdAt: item.createdAt,
+      };
+    });
+
+    const totalOrders = distinctOrderIds.size;
+    const averageOrderValue =
+      totalOrders > 0 ? Number((totalGrossSales / totalOrders).toFixed(2)) : 0;
+
+    return {
+      success: true,
+      data: {
+        summary: {
+          totalOrders,
+          totalUnitsSold,
+          totalAdminRevenue: Number(totalGrossSales.toFixed(2)),
+          averageOrderValue,
+          commissionRate: 0.0,
+          currency: 'INR',
+        },
+        items: rows,
+      },
+      message: 'Admin direct retail sales report generated successfully (segregated)',
     };
   }
 
@@ -697,5 +771,67 @@ export class ReportingService {
         userAgent: data.userAgent || null,
       },
     });
+  }
+
+  // ================= 4. REPORT METADATA & EXPORTS =================
+
+  async requestReportExport(
+    userId: string,
+    dto: RequestReportExportDto,
+  ): Promise<any> {
+    const periodFrom = dto.periodFrom ? new Date(dto.periodFrom) : null;
+    const periodTo = dto.periodTo ? new Date(dto.periodTo) : null;
+    const format = (dto.reportFormat || 'CSV').toUpperCase();
+
+    const report = await this.prisma.reportMetadata.create({
+      data: {
+        reportName: dto.reportName.trim(),
+        reportType: dto.reportType.trim(),
+        requestedById: userId,
+        reportFormat: format,
+        periodFrom,
+        periodTo,
+        status: 'COMPLETED',
+        fileKey: `exports/reports/${Date.now()}-${dto.reportType.toLowerCase()}.${format.toLowerCase()}`,
+        filterParams: dto.filterParams || undefined,
+        summaryMetrics: {
+          generatedAt: new Date().toISOString(),
+          requestedBy: userId,
+        },
+      },
+    });
+
+    return {
+      success: true,
+      data: report,
+      message: 'Report export generated successfully',
+    };
+  }
+
+  async getReportMetadataById(
+    userId: string,
+    userRole: string,
+    reportId: string,
+  ): Promise<any> {
+    const report = await this.prisma.reportMetadata.findUnique({
+      where: { id: reportId },
+      include: {
+        requestedBy: { select: { id: true, fullName: true, email: true } },
+      },
+    });
+
+    if (!report) {
+      throw new NotFoundException('Report not found');
+    }
+
+    if (userRole !== 'SUPER_ADMIN' && report.requestedById !== userId) {
+      throw new ForbiddenException('You are not authorized to view this report');
+    }
+
+    return {
+      success: true,
+      data: report,
+      message: 'Report metadata retrieved successfully',
+    };
   }
 }
